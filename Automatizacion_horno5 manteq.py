@@ -84,7 +84,7 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
     for row in dataframe_to_rows(df_nuevo, header=True, index=False):
         ws.append(row)
         
-    st.info(f"Hoja **'{nombre_hoja}'** creada con {len(columnas_destino)} columnas.", icon="📄")
+    
 
 
 # --- FUNCIÓN PRINCIPAL ADAPTADA PARA RECIBIR OBJETOS DE ARCHIVO ---
@@ -380,6 +380,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
