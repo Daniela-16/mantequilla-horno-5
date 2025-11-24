@@ -327,14 +327,14 @@ def main():
 
     with col1:
         file_original = st.file_uploader(
-            "1. Archivo Original (.xlsx)", 
+            "1. Archivo Original (.xlsx)", "Arrastra y suelta aquí el Archivo de Mantequilla",
             type=['xlsx'], 
             help="El archivo que contiene la base de datos."
         )
 
     with col2:
         file_externa = st.file_uploader(
-            "2. Base de Datos Externa (.xlsb o .xlsx)", 
+            "2. Base de Datos Externa (.xlsb o .xlsx)", "Arrastra y suelta aquí el Archivo de Mantequilla",
             type=['xlsb', 'xlsx'], 
             help="El archivo que contiene la hoja 'Especif y Rutas' para la Cantidad Base y el % de rechazo."
         )
@@ -380,6 +380,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
