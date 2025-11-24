@@ -320,7 +320,7 @@ def main():
         initial_sidebar_state="auto"
     )
 
-    st.title("⚙️ Automatización Horno 5 - Procesador de Mantequilla")
+    st.title("⚙️ Automatización Horno 5 - Mantequilla")
     st.markdown("Cargue los dos archivos requeridos para generar el reporte procesado")
 
     col1, col2 = st.columns(2)
@@ -380,5 +380,6 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
