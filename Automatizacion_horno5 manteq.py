@@ -320,7 +320,7 @@ def main():
         initial_sidebar_state="auto"
     )
 
-    st.title("🔥 Automatización Horno 5 - Procesador de Mantequilla")
+    st.title("⚙️ Automatización Horno 5 - Procesador de Mantequilla")
     st.markdown("Cargue los dos archivos requeridos para generar el reporte procesado con las hojas adicionales (`mantequilla_procesada`, `lsmw`, etc.).")
 
     col1, col2 = st.columns(2)
@@ -342,7 +342,7 @@ def main():
     st.markdown("---")
     
     # 💡 Botón de ejecución y manejo del proceso
-    if st.button("▶️ PROCESAR ARCHIVOS", type="primary", use_container_width=True):
+    if st.button("▶️ PROCESAR HORNO 5", type="primary", use_container_width=True):
         if file_original is None or file_externa is None:
             st.error("Por favor, cargue ambos archivos antes de procesar.")
         else:
@@ -361,7 +361,6 @@ def main():
             st.markdown("---")
 
             if success:
-                st.balloons()
                 st.success("✅ Proceso completado exitosamente.")
                 
                 # Botón de Descarga
@@ -379,4 +378,5 @@ def main():
                 st.write("Verifique el formato de las hojas y los nombres de las columnas en sus archivos.")
 
 if __name__ == "__main__":
+
     main()
