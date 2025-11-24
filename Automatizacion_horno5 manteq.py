@@ -157,7 +157,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         # --- 4. CÁLCULOS Y BÚSQUEDAS (Clave, Cantidad Calculada, Rechazo, Peso Neto, Secuencia) ---
         
-        st.subheader("Calculando métricas clave... ⚙️")
+        
 
         def limpiar_col(df: pd.DataFrame, idx: int) -> pd.Series:
             return df[cols_original[idx]].astype(str).str.strip().str.replace(r'\W+', '', regex=True)
@@ -237,7 +237,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
 
         # --- 8. RECONSTRUCCIÓN FINAL Y GUARDADO CON FORMATO EN MEMORIA ---
-        st.subheader("Generando archivo final y aplicando formato... 📝")
+        
         
         df_original_final = df_original.reindex(columns=[c for c in FINAL_COL_ORDER if c in df_original.columns])
         
@@ -287,7 +287,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
                 cell_to_color.fill = fill_anomalia
         
         # --- CREACIÓN DE HOJAS ADICIONALES (Mantiene las originales y agrega las nuevas) ---
-        st.subheader("Creando hojas adicionales de reporte... ✨")
+        
         crear_y_guardar_hoja(wb, df_original, "lsmw", COLUMNAS_LSMW)
         crear_y_guardar_hoja(wb, df_original, "campos de usuario", COLUMNAS_CAMPOS_USUARIO)
         crear_y_guardar_hoja(wb, df_original, "% de rechazo", COLUMNAS_RECHAZO)
@@ -380,4 +380,5 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
