@@ -321,7 +321,7 @@ def main():
     )
 
     st.title("⚙️ Automatización Horno 5 - Procesador de Mantequilla")
-    st.markdown("Cargue los dos archivos requeridos para generar el reporte procesado con las hojas adicionales (`mantequilla_procesada`, `lsmw`, etc.).")
+    st.markdown("Cargue los dos archivos requeridos para generar el reporte procesado")
 
     col1, col2 = st.columns(2)
 
@@ -329,7 +329,7 @@ def main():
         file_original = st.file_uploader(
             "1. Archivo Original (.xlsx)", 
             type=['xlsx'], 
-            help="El archivo que contiene las hojas 'mantequilla', 'Peso neto', 'Secuencias' y 'Mano de obra'."
+            help="El archivo que contiene la base de datos."
         )
 
     with col2:
@@ -380,3 +380,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
