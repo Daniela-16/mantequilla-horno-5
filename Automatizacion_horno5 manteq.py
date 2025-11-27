@@ -42,8 +42,8 @@ COLUMNAS_LSMW = [
 ]
 COLUMNAS_CAMPOS_USUARIO = [
     'GrpHRuta', 'CGH', 'Material', 'Ce.', 'Op.', 
-    'Indicador', 'clase de control', COL_NRO_PERSONAS, 
-    COL_NRO_MAQUINAS 
+    'Indicador', 'clase de control', 
+     COL_NRO_PERSONAS, COL_NRO_MAQUINAS 
 ]
 COLUMNAS_RECHAZO = [
     'GrPlf', 'Clave_Busqueda', 'Material', 'Ce.', 'alternativa', 'alternativa', 
@@ -146,10 +146,8 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         df_secuencias = pd.read_excel(file_original, sheet_name=HOJA_SECUENCIAS)
         file_original.seek(0)
         
-        # LECTURA AJUSTADA: Leer las columnas necesarias para el Puesto de Trabajo (0), 
-        # Máquinas (4 y 6) y Personas (8 y 10). Se incluye 2 por compatibilidad de la lógica inicial de MO.
-        # Columnas a leer (Índice base 0): 0, 2, 4, 6, 8, 10
-        df_mano_obra = pd.read_excel(file_original, sheet_name=HOJA_MANO_OBRA, header=None, usecols=[0, 2, 4, 6, 8, 10])
+        # LECTURA CORREGIDA: Leemos todas las columnas (sin usecols) para evitar el error de out-of-bounds.
+        df_mano_obra = pd.read_excel(file_original, sheet_name=HOJA_MANO_OBRA, header=None)
         
         # 3.2 Lectura de archivo externo
         cols_externo = pd.read_excel(file_info_externa, sheet_name='Especif y Rutas', nrows=0).columns.tolist()
@@ -199,18 +197,22 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         # --- 5. CÁLCULO DE MANO DE OBRA Y MÁQUINAS (CONDICIÓN OP. TERMINADA EN '1') ---
         
-        # Las columnas leídas por df_mano_obra son [0, 2, 4, 6, 8, 10]
-        # Puesto de trabajo para MO (Tiempo): Índice 0 (original) y Cantidad: Índice 1 (original)
+        # Índices de df_mano_obra (después de leer todas las columnas):
+        # El índice de la columna en el DataFrame corresponde al índice de la columna en Excel - 1.
+        # Personas Original: Columna C -> Índice 2
+        # Máquinas PstoTbjo: Columna E -> Índice 4
+        # Máquinas Cantidad: Columna G -> Índice 6
+        # Personas PstoTbjo: Columna I -> Índice 8
+        # Personas Cantidad: Columna K -> Índice 10
+
         COL_PSTTBJO_MO_TIEMPO = 0
-        COL_CANTIDAD_MO_TIEMPO = 1 # Este índice corresponde al índice 2 del Excel (la columna original de personas)
+        COL_CANTIDAD_MO_TIEMPO = 2 
         
-        # Máquinas: Puesto de trabajo (Col E -> Índice 2), Cantidad (Col G -> Índice 3)
-        COL_PSTTBJO_MAQUINAS = 2
-        COL_CANTIDAD_MAQUINAS = 3
+        COL_PSTTBJO_MAQUINAS = 4
+        COL_CANTIDAD_MAQUINAS = 6
         
-        # Personas: Puesto de trabajo (Col I -> Índice 4), Cantidad (Col K -> Índice 5)
-        COL_PSTTBJO_PERSONAS = 4
-        COL_CANTIDAD_PERSONAS = 5 
+        COL_PSTTBJO_PERSONAS = 8
+        COL_CANTIDAD_PERSONAS = 10
         
         # Limpiar y convertir tipos de datos para los mapas
         df_mano_obra[COL_PSTTBJO_MO_TIEMPO] = df_mano_obra[COL_PSTTBJO_MO_TIEMPO].astype(str).str.strip()
@@ -224,7 +226,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
 
         # 5.1. Lógica Existente: Cálculo de TIEMPO de Mano de Obra (Personas * 60)
-        # Usamos la columna de personas original (índice 1 de df_mano_obra)
         df_mano_obra['Calculo_MO'] = df_mano_obra[COL_CANTIDAD_MO_TIEMPO] * 60
         mapa_mano_obra_tiempo = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MO_TIEMPO], keep='first').set_index(COL_PSTTBJO_MO_TIEMPO)['Calculo_MO']
         
@@ -237,14 +238,12 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
 
         # 5.2. Lógica NUEVA: Búsqueda del Número de PERSONAS (Columna I -> K)
-        # Usamos la columna I (índice 4) como llave y K (índice 5) como valor
         mapa_personas = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_PERSONAS], keep='first').set_index(COL_PSTTBJO_PERSONAS)[COL_CANTIDAD_PERSONAS]
         df_original[COL_NRO_PERSONAS] = np.nan 
         df_original.loc[indices_terminan_en_1, COL_NRO_PERSONAS] = psttbjo_filtrado.map(mapa_personas)
 
 
         # 5.3. Lógica NUEVA: Búsqueda del Número de MÁQUINAS (Columna E -> G)
-        # Usamos la columna E (índice 2) como llave y G (índice 3) como valor
         mapa_maquinas = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MAQUINAS], keep='first').set_index(COL_PSTTBJO_MAQUINAS)[COL_CANTIDAD_MAQUINAS]
         df_original[COL_NRO_MAQUINAS] = np.nan
         df_original.loc[indices_terminan_en_1, COL_NRO_MAQUINAS] = psttbjo_filtrado.map(mapa_maquinas)
@@ -346,7 +345,8 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
     except KeyError as ke:
         return False, f"❌ ERROR CRÍTICO DE ENCABEZADO: El script no encontró la columna {ke}. Verifique las hojas y encabezados del archivo original o externo."
     except IndexError as ie:
-        return False, f"❌ ERROR CRÍTICO DE ÍNDICE: Asegúrese de que la columna AC es el índice 28 en el archivo externo o que los índices de la hoja 'Mano de obra' son correctos. Mensaje: {ie}"
+        # El índice de la columna 10 es K. Si falla aquí, significa que K no existe.
+        return False, f"❌ ERROR CRÍTICO DE ÍNDICE: Asegúrese de que la hoja 'Mano de obra' tenga al menos 11 columnas (hasta la Columna K). Mensaje: {ie}"
     except ValueError as ve:
         if 'sheetname' in str(ve) or 'Worksheet' in str(ve):
             return False, f"❌ Error de Lectura de Hoja: Una de las hojas clave ({HOJA_PRINCIPAL}, Peso neto, {HOJA_SECUENCIAS}, {HOJA_MANO_OBRA}, 'Especif y Rutas') no se encontró en los archivos cargados. Mensaje: {ve}"
@@ -424,7 +424,6 @@ def main():
 if __name__ == "__main__":
 
     main()
-
 
 
 
