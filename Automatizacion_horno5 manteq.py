@@ -26,7 +26,7 @@ COL_MANO_OBRA = 'Mano de obra'
 HOJA_MANO_OBRA = 'Mano de obra'
 COL_SUMA_VALORES = 'suma valores'
 COL_PORCENTAJE_RECHAZO = '%de rechazo'
-COL_NRO_PERSONAS = 'Nro. de Personas MO' # <--- NUEVA CONSTANTE AGREGADA
+COL_NRO_PERSONAS = 'Cant_Manual'
 
 # Nombres de hojas a crear
 HOJA_PRINCIPAL = 'mantequilla'
@@ -42,7 +42,7 @@ COLUMNAS_LSMW = [
 COLUMNAS_CAMPOS_USUARIO = [
     'GrpHRuta', 'CGH', 'Material', 'Ce.', 'Op.', 
     'Indicador', 'clase de control', 
-    'Campo de usuario cantidad MANUAL', 'Campo de usuario cantidad MAQUINAS'
+    COL_NRO_PERSONAS, 'Campo de usuario cantidad MAQUINAS'
 ]
 COLUMNAS_RECHAZO = [
     'GrPlf', 'Clave_Busqueda', 'Material', 'Ce.', 'alternativa', 'alternativa', 
@@ -393,6 +393,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
