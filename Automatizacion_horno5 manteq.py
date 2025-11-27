@@ -26,7 +26,8 @@ COL_MANO_OBRA = 'Mano de obra'
 HOJA_MANO_OBRA = 'Mano de obra'
 COL_SUMA_VALORES = 'suma valores'
 COL_PORCENTAJE_RECHAZO = '%de rechazo'
-COL_NRO_PERSONAS = 'Cant_Manual'
+COL_NRO_PERSONAS = 'Cant_Manual' 
+COL_NRO_MAQUINAS = 'Cant_Maquinas' 
 
 # Nombres de hojas a crear
 HOJA_PRINCIPAL = 'mantequilla'
@@ -41,8 +42,8 @@ COLUMNAS_LSMW = [
 ]
 COLUMNAS_CAMPOS_USUARIO = [
     'GrpHRuta', 'CGH', 'Material', 'Ce.', 'Op.', 
-    'Indicador', 'clase de control', 
-    COL_NRO_PERSONAS, 'Campo de usuario cantidad MAQUINAS'
+    'Indicador', 'clase de control', COL_NRO_PERSONAS, 
+    COL_NRO_MAQUINAS 
 ]
 COLUMNAS_RECHAZO = [
     'GrPlf', 'Clave_Busqueda', 'Material', 'Ce.', 'alternativa', 'alternativa', 
@@ -112,8 +113,9 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         'ValPref2', COL_MANO_OBRA, 'ValPref3', 'ValPref4', COL_SUMA_VALORES,  
         'ValPref5', 
         'Campo de usuario cantidad MANUAL', 
-        COL_NRO_PERSONAS, # <--- NUEVA COLUMNA DE NÚMERO DE PERSONAS
+        COL_NRO_PERSONAS, 
         'Campo de usuario cantidad MAQUINAS', 
+        COL_NRO_MAQUINAS, 
         'Texto breve operación', 'Ctrl', 'VerF', 'PstoTbjo', 'Cl.', 'Gr.fam.pre', 
         'Texto breve de material', 'Txt.brv.HRuta', 'Bloq.vers.fabric.', 'Campo usuario unidad', 
         'Campo usuario unidad.1', 'Cantidad', 'Contador', 'InBo', 'InBo.1', 'InBo.2', 
@@ -135,9 +137,8 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         nombre_psttbjo = cols_original[IDX_PSTTBJO]
             
         # Carga del DataFrame Principal, de Peso Neto, Secuencias y Mano de Obra
-        # NOTA: Para leer múltiples hojas, cargamos los DataFrames por separado.
         df_original = pd.read_excel(file_original, sheet_name=HOJA_PRINCIPAL, dtype={nombre_cant_base_leida: str})
-        file_original.seek(0) # Resetear para la siguiente lectura
+        file_original.seek(0) 
 
         df_peso_neto = pd.read_excel(file_original, sheet_name='Peso neto')
         file_original.seek(0)
@@ -145,7 +146,10 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         df_secuencias = pd.read_excel(file_original, sheet_name=HOJA_SECUENCIAS)
         file_original.seek(0)
         
-        df_mano_obra = pd.read_excel(file_original, sheet_name=HOJA_MANO_OBRA, header=None, usecols=[0, 2])
+        # LECTURA AJUSTADA: Leer las columnas necesarias para el Puesto de Trabajo (0), 
+        # Máquinas (4 y 6) y Personas (8 y 10). Se incluye 2 por compatibilidad de la lógica inicial de MO.
+        # Columnas a leer (Índice base 0): 0, 2, 4, 6, 8, 10
+        df_mano_obra = pd.read_excel(file_original, sheet_name=HOJA_MANO_OBRA, header=None, usecols=[0, 2, 4, 6, 8, 10])
         
         # 3.2 Lectura de archivo externo
         cols_externo = pd.read_excel(file_info_externa, sheet_name='Especif y Rutas', nrows=0).columns.tolist()
@@ -193,30 +197,57 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         df_original[COL_SECUENCIA] = df_original[nombre_psttbjo].apply(obtener_secuencia)
 
-        # --- 5. CÁLCULO DE MANO DE OBRA Y SUMA DE VALORES ---
-        COL_MO_PSTTBJO = df_mano_obra.columns[0]; COL_MO_PERSONAS = df_mano_obra.columns[1] 
-        df_mano_obra[COL_MO_PSTTBJO] = df_mano_obra[COL_MO_PSTTBJO].astype(str).str.strip()
-        df_mano_obra[COL_MO_PERSONAS] = pd.to_numeric(df_mano_obra[COL_MO_PERSONAS], errors='coerce')
+        # --- 5. CÁLCULO DE MANO DE OBRA Y MÁQUINAS (CONDICIÓN OP. TERMINADA EN '1') ---
+        
+        # Las columnas leídas por df_mano_obra son [0, 2, 4, 6, 8, 10]
+        # Puesto de trabajo para MO (Tiempo): Índice 0 (original) y Cantidad: Índice 1 (original)
+        COL_PSTTBJO_MO_TIEMPO = 0
+        COL_CANTIDAD_MO_TIEMPO = 1 # Este índice corresponde al índice 2 del Excel (la columna original de personas)
+        
+        # Máquinas: Puesto de trabajo (Col E -> Índice 2), Cantidad (Col G -> Índice 3)
+        COL_PSTTBJO_MAQUINAS = 2
+        COL_CANTIDAD_MAQUINAS = 3
+        
+        # Personas: Puesto de trabajo (Col I -> Índice 4), Cantidad (Col K -> Índice 5)
+        COL_PSTTBJO_PERSONAS = 4
+        COL_CANTIDAD_PERSONAS = 5 
+        
+        # Limpiar y convertir tipos de datos para los mapas
+        df_mano_obra[COL_PSTTBJO_MO_TIEMPO] = df_mano_obra[COL_PSTTBJO_MO_TIEMPO].astype(str).str.strip()
+        df_mano_obra[COL_CANTIDAD_MO_TIEMPO] = pd.to_numeric(df_mano_obra[COL_CANTIDAD_MO_TIEMPO], errors='coerce')
+        
+        df_mano_obra[COL_PSTTBJO_MAQUINAS] = df_mano_obra[COL_PSTTBJO_MAQUINAS].astype(str).str.strip()
+        df_mano_obra[COL_CANTIDAD_MAQUINAS] = pd.to_numeric(df_mano_obra[COL_CANTIDAD_MAQUINAS], errors='coerce')
+
+        df_mano_obra[COL_PSTTBJO_PERSONAS] = df_mano_obra[COL_PSTTBJO_PERSONAS].astype(str).str.strip()
+        df_mano_obra[COL_CANTIDAD_PERSONAS] = pd.to_numeric(df_mano_obra[COL_CANTIDAD_PERSONAS], errors='coerce')
+
 
         # 5.1. Lógica Existente: Cálculo de TIEMPO de Mano de Obra (Personas * 60)
-        df_mano_obra['Calculo_MO'] = df_mano_obra[COL_MO_PERSONAS] * 60
-        mapa_mano_obra_tiempo = df_mano_obra.drop_duplicates(subset=[COL_MO_PSTTBJO], keep='first').set_index(COL_MO_PSTTBJO)['Calculo_MO']
+        # Usamos la columna de personas original (índice 1 de df_mano_obra)
+        df_mano_obra['Calculo_MO'] = df_mano_obra[COL_CANTIDAD_MO_TIEMPO] * 60
+        mapa_mano_obra_tiempo = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MO_TIEMPO], keep='first').set_index(COL_PSTTBJO_MO_TIEMPO)['Calculo_MO']
         
         COL_OP = 'Op.' 
         df_original[COL_MANO_OBRA] = np.nan
         op_col = df_original[COL_OP].astype(str).str.strip()
         indices_terminan_en_1 = op_col.str.endswith('1')
         psttbjo_filtrado = df_original.loc[indices_terminan_en_1, nombre_psttbjo].astype(str).str.strip()
-        # Asigna el TIEMPO de MO (Existente)
         df_original.loc[indices_terminan_en_1, COL_MANO_OBRA] = psttbjo_filtrado.map(mapa_mano_obra_tiempo)
 
 
-        # 5.2. Lógica NUEVA: Búsqueda del Número de PERSONAS para la columna requerida
-        mapa_personas = df_mano_obra.drop_duplicates(subset=[COL_MO_PSTTBJO], keep='first').set_index(COL_MO_PSTTBJO)[COL_MO_PERSONAS]
-        df_original[COL_NRO_PERSONAS] = np.nan # Inicializa la nueva columna
-
-        # Asigna el NÚMERO DE PERSONAS (Nuevo)
+        # 5.2. Lógica NUEVA: Búsqueda del Número de PERSONAS (Columna I -> K)
+        # Usamos la columna I (índice 4) como llave y K (índice 5) como valor
+        mapa_personas = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_PERSONAS], keep='first').set_index(COL_PSTTBJO_PERSONAS)[COL_CANTIDAD_PERSONAS]
+        df_original[COL_NRO_PERSONAS] = np.nan 
         df_original.loc[indices_terminan_en_1, COL_NRO_PERSONAS] = psttbjo_filtrado.map(mapa_personas)
+
+
+        # 5.3. Lógica NUEVA: Búsqueda del Número de MÁQUINAS (Columna E -> G)
+        # Usamos la columna E (índice 2) como llave y G (índice 3) como valor
+        mapa_maquinas = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MAQUINAS], keep='first').set_index(COL_PSTTBJO_MAQUINAS)[COL_CANTIDAD_MAQUINAS]
+        df_original[COL_NRO_MAQUINAS] = np.nan
+        df_original.loc[indices_terminan_en_1, COL_NRO_MAQUINAS] = psttbjo_filtrado.map(mapa_maquinas)
 
 
         # Suma de Valores
@@ -315,7 +346,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
     except KeyError as ke:
         return False, f"❌ ERROR CRÍTICO DE ENCABEZADO: El script no encontró la columna {ke}. Verifique las hojas y encabezados del archivo original o externo."
     except IndexError as ie:
-        return False, f"❌ ERROR CRÍTICO DE ÍNDICE: Asegúrese de que la columna AC es el índice 28 en el archivo externo. Mensaje: {ie}"
+        return False, f"❌ ERROR CRÍTICO DE ÍNDICE: Asegúrese de que la columna AC es el índice 28 en el archivo externo o que los índices de la hoja 'Mano de obra' son correctos. Mensaje: {ie}"
     except ValueError as ve:
         if 'sheetname' in str(ve) or 'Worksheet' in str(ve):
             return False, f"❌ Error de Lectura de Hoja: Una de las hojas clave ({HOJA_PRINCIPAL}, Peso neto, {HOJA_SECUENCIAS}, {HOJA_MANO_OBRA}, 'Especif y Rutas') no se encontró en los archivos cargados. Mensaje: {ve}"
@@ -393,8 +424,6 @@ def main():
 if __name__ == "__main__":
 
     main()
-
-
 
 
 
