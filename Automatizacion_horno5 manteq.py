@@ -208,11 +208,11 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         COL_PSTTBJO_MO_TIEMPO = 0
         COL_CANTIDAD_MO_TIEMPO = 2 
         
-        COL_PSTTBJO_MAQUINAS = 4
-        COL_CANTIDAD_MAQUINAS = 6
+        COL_PSTTBJO_MAQUINAS = 3
+        COL_CANTIDAD_MAQUINAS = 5
         
-        COL_PSTTBJO_PERSONAS = 8
-        COL_CANTIDAD_PERSONAS = 10
+        COL_PSTTBJO_PERSONAS = 6
+        COL_CANTIDAD_PERSONAS = 8
         
         # Limpiar y convertir tipos de datos para los mapas
         df_mano_obra[COL_PSTTBJO_MO_TIEMPO] = df_mano_obra[COL_PSTTBJO_MO_TIEMPO].astype(str).str.strip()
@@ -424,6 +424,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
