@@ -26,6 +26,7 @@ COL_MANO_OBRA = 'Mano de obra'
 HOJA_MANO_OBRA = 'Mano de obra'
 COL_SUMA_VALORES = 'suma valores'
 COL_PORCENTAJE_RECHAZO = '%de rechazo'
+COL_NRO_PERSONAS = 'Nro. de Personas MO' # <--- NUEVA CONSTANTE AGREGADA
 
 # Nombres de hojas a crear
 HOJA_PRINCIPAL = 'mantequilla'
@@ -86,7 +87,6 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
         
     
 
-
 # --- FUNCIÓN PRINCIPAL ADAPTADA PARA RECIBIR OBJETOS DE ARCHIVO ---
 
 def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_info_externa: io.BytesIO) -> Tuple[bool, Union[str, io.BytesIO]]:
@@ -110,7 +110,10 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         COL_PORCENTAJE_RECHAZO, NOMBRE_COL_CANTIDAD_BASE, COL_CANT_CALCULADA,  
         COL_DIFERENCIA, COL_PESO_NETO, COL_SECUENCIA, 'ValPref', 'ValPref1', 
         'ValPref2', COL_MANO_OBRA, 'ValPref3', 'ValPref4', COL_SUMA_VALORES,  
-        'ValPref5', 'Campo de usuario cantidad MANUAL', 'Campo de usuario cantidad MAQUINAS', 
+        'ValPref5', 
+        'Campo de usuario cantidad MANUAL', 
+        COL_NRO_PERSONAS, # <--- NUEVA COLUMNA DE NÚMERO DE PERSONAS
+        'Campo de usuario cantidad MAQUINAS', 
         'Texto breve operación', 'Ctrl', 'VerF', 'PstoTbjo', 'Cl.', 'Gr.fam.pre', 
         'Texto breve de material', 'Txt.brv.HRuta', 'Bloq.vers.fabric.', 'Campo usuario unidad', 
         'Campo usuario unidad.1', 'Cantidad', 'Contador', 'InBo', 'InBo.1', 'InBo.2', 
@@ -157,8 +160,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         # --- 4. CÁLCULOS Y BÚSQUEDAS (Clave, Cantidad Calculada, Rechazo, Peso Neto, Secuencia) ---
         
-        
-
         def limpiar_col(df: pd.DataFrame, idx: int) -> pd.Series:
             return df[cols_original[idx]].astype(str).str.strip().str.replace(r'\W+', '', regex=True)
 
@@ -196,15 +197,27 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         COL_MO_PSTTBJO = df_mano_obra.columns[0]; COL_MO_PERSONAS = df_mano_obra.columns[1] 
         df_mano_obra[COL_MO_PSTTBJO] = df_mano_obra[COL_MO_PSTTBJO].astype(str).str.strip()
         df_mano_obra[COL_MO_PERSONAS] = pd.to_numeric(df_mano_obra[COL_MO_PERSONAS], errors='coerce')
+
+        # 5.1. Lógica Existente: Cálculo de TIEMPO de Mano de Obra (Personas * 60)
         df_mano_obra['Calculo_MO'] = df_mano_obra[COL_MO_PERSONAS] * 60
-        mapa_mano_obra = df_mano_obra.drop_duplicates(subset=[COL_MO_PSTTBJO], keep='first').set_index(COL_MO_PSTTBJO)['Calculo_MO']
+        mapa_mano_obra_tiempo = df_mano_obra.drop_duplicates(subset=[COL_MO_PSTTBJO], keep='first').set_index(COL_MO_PSTTBJO)['Calculo_MO']
         
         COL_OP = 'Op.' 
         df_original[COL_MANO_OBRA] = np.nan
         op_col = df_original[COL_OP].astype(str).str.strip()
         indices_terminan_en_1 = op_col.str.endswith('1')
         psttbjo_filtrado = df_original.loc[indices_terminan_en_1, nombre_psttbjo].astype(str).str.strip()
-        df_original.loc[indices_terminan_en_1, COL_MANO_OBRA] = psttbjo_filtrado.map(mapa_mano_obra)
+        # Asigna el TIEMPO de MO (Existente)
+        df_original.loc[indices_terminan_en_1, COL_MANO_OBRA] = psttbjo_filtrado.map(mapa_mano_obra_tiempo)
+
+
+        # 5.2. Lógica NUEVA: Búsqueda del Número de PERSONAS para la columna requerida
+        mapa_personas = df_mano_obra.drop_duplicates(subset=[COL_MO_PSTTBJO], keep='first').set_index(COL_MO_PSTTBJO)[COL_MO_PERSONAS]
+        df_original[COL_NRO_PERSONAS] = np.nan # Inicializa la nueva columna
+
+        # Asigna el NÚMERO DE PERSONAS (Nuevo)
+        df_original.loc[indices_terminan_en_1, COL_NRO_PERSONAS] = psttbjo_filtrado.map(mapa_personas)
+
 
         # Suma de Valores
         COLUMNAS_A_SUMAR = ['ValPref', 'ValPref1', COL_MANO_OBRA, 'ValPref3']
@@ -380,6 +393,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
