@@ -35,8 +35,8 @@ HOJA_SALIDA = 'mantequilla_procesada'
 # Definición de columnas de salida (restauradas del código original)
 COLUMNAS_LSMW = [
     'PstoTbjo', 'GrpHRuta', 'CGH', 'Material', 'Ce.', 'Op.', 
-    COL_CANT_CALCULADA, 'ValPref', 'ValPref1', 'ValPref2', 'ValPref3', 
-    'ValPref4', 'ValPref5', 'Campo de usuario cantidad MANUAL', 'Campo de usuario cantidad MAQUINAS'
+    COL_CANT_CALCULADA, 'ValPref', 'ValPref1', 'Mano de obra', 'ValPref3', 
+    'suma valores', 'ValPref5'
 ]
 COLUMNAS_CAMPOS_USUARIO = [
     'GrpHRuta', 'CGH', 'Material', 'Ce.', 'Op.', 
@@ -380,6 +380,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
