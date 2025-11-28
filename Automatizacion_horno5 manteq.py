@@ -147,7 +147,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         file_original.seek(0)
         
         # LECTURA CORREGIDA: Leemos todas las columnas (sin usecols) para evitar el error de out-of-bounds.
-        # df_mano_obra debe tener suficientes columnas para los nuevos índices A, C, D, F, G, I
+        # df_mano_obra debe tener suficientes columnas para los nuevos índices A, C, D, E
         df_mano_obra = pd.read_excel(file_original, sheet_name=HOJA_MANO_OBRA, header=None)
         
         # 3.2 Lectura de archivo externo
@@ -198,22 +198,19 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         # --- 5. CÁLCULO DE MANO DE OBRA Y MÁQUINAS (CONDICIÓN OP. TERMINADA EN '1') ---
         
-        # Mapping: Columna de Excel -> Índice de DataFrame (base 0)
-        # Mano de Obra (Tiempo): PuestoTbjo (A) -> Índice 0, Cantidad (C) -> Índice 2
-        # Cant. Máquinas: PuestoTbjo (D) -> Índice 3, Cantidad (F) -> Índice 5
-        # Cant. Personas: PuestoTbjo (G) -> Índice 6, Cantidad (I) -> Índice 8
+        # NUEVOS ÍNDICES BASADOS EN LA TABLA DEL USUARIO (A=0, C=2, D=3, E=4)
         
-        # MANTENIDO: Lógica de Tiempo de Mano de Obra
-        COL_PSTTBJO_MO_TIEMPO = 0 # Columna A
+        # 1. Mano de Obra (Tiempo: Columna A -> Columna C)
+        COL_PSTTBJO_MO_TIEMPO = 0  # Columna A
         COL_CANTIDAD_MO_TIEMPO = 2 # Columna C
         
-        # NUEVOS ÍNDICES PARA MAQUINAS
-        COL_PSTTBJO_MAQUINAS = 3  # Columna D
-        COL_CANTIDAD_MAQUINAS = 5 # Columna F
+        # 2. Cant. Máquinas (Columna A -> Columna D)
+        COL_PSTTBJO_MAQUINAS = 0   # Columna A
+        COL_CANTIDAD_MAQUINAS = 3  # Columna D
         
-        # NUEVOS ÍNDICES PARA PERSONAS
-        COL_PSTTBJO_PERSONAS = 6  # Columna G
-        COL_CANTIDAD_PERSONAS = 8 # Columna I
+        # 3. Cant. Personas (Columna A -> Columna E)
+        COL_PSTTBJO_PERSONAS = 0   # Columna A
+        COL_CANTIDAD_PERSONAS = 4  # Columna E
         
         # Limpiar y convertir tipos de datos para los mapas
         df_mano_obra[COL_PSTTBJO_MO_TIEMPO] = df_mano_obra[COL_PSTTBJO_MO_TIEMPO].astype(str).str.strip()
@@ -226,7 +223,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         df_mano_obra[COL_CANTIDAD_PERSONAS] = pd.to_numeric(df_mano_obra[COL_CANTIDAD_PERSONAS], errors='coerce')
 
 
-        # 5.1. Lógica Existente: Cálculo de TIEMPO de Mano de Obra (Personas * 60)
+        # 5.1. Cálculo de TIEMPO de Mano de Obra (Personas * 60)
         df_mano_obra['Calculo_MO'] = df_mano_obra[COL_CANTIDAD_MO_TIEMPO] * 60
         mapa_mano_obra_tiempo = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MO_TIEMPO], keep='first').set_index(COL_PSTTBJO_MO_TIEMPO)['Calculo_MO']
         
@@ -238,13 +235,13 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         df_original.loc[indices_terminan_en_1, COL_MANO_OBRA] = psttbjo_filtrado.map(mapa_mano_obra_tiempo)
 
 
-        # 5.2. Lógica NUEVA (corregida): Búsqueda del Número de PERSONAS (PstoTbjo G -> Cantidad I)
+        # 5.2. Búsqueda del Número de PERSONAS (Columna E)
         mapa_personas = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_PERSONAS], keep='first').set_index(COL_PSTTBJO_PERSONAS)[COL_CANTIDAD_PERSONAS]
         df_original[COL_NRO_PERSONAS] = np.nan 
         df_original.loc[indices_terminan_en_1, COL_NRO_PERSONAS] = psttbjo_filtrado.map(mapa_personas)
 
 
-        # 5.3. Lógica NUEVA (corregida): Búsqueda del Número de MÁQUINAS (PstoTbjo D -> Cantidad F)
+        # 5.3. Búsqueda del Número de MÁQUINAS (Columna D)
         mapa_maquinas = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MAQUINAS], keep='first').set_index(COL_PSTTBJO_MAQUINAS)[COL_CANTIDAD_MAQUINAS]
         df_original[COL_NRO_MAQUINAS] = np.nan
         df_original.loc[indices_terminan_en_1, COL_NRO_MAQUINAS] = psttbjo_filtrado.map(mapa_maquinas)
@@ -346,8 +343,8 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
     except KeyError as ke:
         return False, f"❌ ERROR CRÍTICO DE ENCABEZADO: El script no encontró la columna {ke}. Verifique las hojas y encabezados del archivo original o externo."
     except IndexError as ie:
-        # El índice de la columna 10 es K. Si falla aquí, significa que K no existe.
-        return False, f"❌ ERROR CRÍTICO DE ÍNDICE: Asegúrese de que la hoja 'Mano de obra' tenga al menos 11 columnas (hasta la Columna K). Mensaje: {ie}"
+        # Esto se ajusta ya que solo necesitamos hasta la columna E (índice 4)
+        return False, f"❌ ERROR CRÍTICO DE ÍNDICE: Asegúrese de que la hoja 'Mano de obra' tenga al menos 5 columnas (hasta la Columna E). Mensaje: {ie}"
     except ValueError as ve:
         if 'sheetname' in str(ve) or 'Worksheet' in str(ve):
             return False, f"❌ Error de Lectura de Hoja: Una de las hojas clave ({HOJA_PRINCIPAL}, Peso neto, {HOJA_SECUENCIAS}, {HOJA_MANO_OBRA}, 'Especif y Rutas') no se encontró en los archivos cargados. Mensaje: {ve}"
@@ -425,7 +422,6 @@ def main():
 if __name__ == "__main__":
 
     main()
-
 
 
 
