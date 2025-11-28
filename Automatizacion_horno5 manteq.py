@@ -38,6 +38,14 @@ HOJA_PRINCIPAL = 'HORNO 5'
 HOJA_SECUENCIAS = 'Secuencias'
 HOJA_SALIDA = 'HORNO5_procesado'
 
+# Columnas a resaltar en todas las hojas (solicitado por el usuario)
+COLUMNAS_A_RESALTAR = [
+    COL_MANO_OBRA,
+    COL_SUMA_VALORES,
+    COL_NRO_PERSONAS, # Cant_Manual
+    COL_NRO_MAQUINAS  # Cant_Maquinas
+]
+
 # Definición de columnas de salida
 COLUMNAS_LSMW = [
     'PstoTbjo', 'GrpHRuta', 'CGH', 'Material', 'Ce.', 'Op.',
@@ -55,13 +63,13 @@ COLUMNAS_RECHAZO = [
     '% rechazo anterior', 'Diferencia', 'Txt.brv.HRuta'
 ]
 
-# Índices para el archivo original (basados en la columna que se lee del encabezado)
+# Índices para el archivo original
 IDX_MATERIAL = 2
 IDX_GRPLF = 4
 IDX_PSTTBJO = 18
 IDX_CANTIDAD_BASE = 6
 IDX_MATERIAL_PN = 0
-IDX_RECHAZO_EXTERNA = 28 # Usado para el nombre de la columna
+IDX_RECHAZO_EXTERNA = 28 
 
 # --- FUNCIONES DE LÓGICA ---
 
@@ -78,21 +86,36 @@ def detectar_y_marcar_cantidad_atipica(grupo: pd.DataFrame) -> pd.Series:
 
     return es_diferente_a_moda
 
-def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_destino: list):
-    """Crea una nueva hoja y la rellena con las columnas especificadas de df_base."""
+def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_destino: list, fill_encabezado: PatternFill, font_negrita: Font):
+    """
+    Crea una nueva hoja, la rellena con las columnas especificadas de df_base,
+    y aplica formato de encabezado a las columnas definidas en COLUMNAS_A_RESALTAR.
+    """
     if nombre_hoja in wb.sheetnames:
         del wb[nombre_hoja]
 
     ws = wb.create_sheet(nombre_hoja)
 
-    # Crear el nuevo DataFrame con las columnas solicitadas
+    # 1. Crear el nuevo DataFrame con las columnas solicitadas
     df_nuevo = pd.DataFrame()
     for col in columnas_destino:
         df_nuevo[col] = df_base[col] if col in df_base.columns else np.nan
 
-    # Escribir el nuevo DataFrame en la hoja
+    # 2. Escribir el nuevo DataFrame en la hoja
     for row in dataframe_to_rows(df_nuevo, header=True, index=False):
         ws.append(row)
+
+    # 3. Aplicar Formato a Encabezados Específicos
+    indices_a_formatear = [
+        df_nuevo.columns.get_loc(col) + 1 
+        for col in COLUMNAS_A_RESALTAR 
+        if col in df_nuevo.columns
+    ]
+
+    for col_idx in indices_a_formatear:
+        header_cell = ws.cell(row=1, column=col_idx)
+        header_cell.fill = fill_encabezado
+        header_cell.font = font_negrita
 
 def obtener_secuencia(puesto_trabajo: str, df_secuencias: pd.DataFrame) -> Union[int, float]:
     """Busca la secuencia del puesto de trabajo en la hoja 'Secuencias'."""
@@ -103,13 +126,12 @@ def obtener_secuencia(puesto_trabajo: str, df_secuencias: pd.DataFrame) -> Union
         col_data = df_secuencias.iloc[:, col_idx].dropna().astype(str).str.strip()
         psttbjo_sec = set(col_data)
 
-        # Si el puesto de trabajo se encuentra en esta columna, asignamos la secuencia (índice + 1)
         if psttbjo_str in psttbjo_sec:
             return col_idx + 1
 
     return np.nan
 
-def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.BytesIO) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, str]]:
+def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.BytesIO) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, str]]:
     """Carga todos los DataFrames necesarios desde los buffers de archivo."""
 
     # Leer encabezados del archivo original para obtener nombres de columnas por índice
@@ -117,12 +139,14 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     file_original.seek(0)
     
     # Mapeo de nombres originales a nombres estandarizados
+    cols_pn = pd.read_excel(file_original, sheet_name='Peso neto', nrows=0).columns.tolist()
+    
     col_names = {
         'cant_base_leida': cols_original[IDX_CANTIDAD_BASE],
         'material': cols_original[IDX_MATERIAL],
         'psttbjo': cols_original[IDX_PSTTBJO],
-        'material_pn': pd.read_excel(file_original, sheet_name='Peso neto', nrows=0).columns.tolist()[IDX_MATERIAL_PN],
-        'peso_neto_valor': pd.read_excel(file_original, sheet_name='Peso neto', nrows=0).columns.tolist()[2],
+        'material_pn': cols_pn[IDX_MATERIAL_PN],
+        'peso_neto_valor': cols_pn[2],
     }
 
     # Carga de DataFrames
@@ -135,7 +159,6 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     df_secuencias = pd.read_excel(file_original, sheet_name=HOJA_SECUENCIAS)
     file_original.seek(0)
 
-    # Lectura de Mano de Obra (sin encabezado explícito, se usa header=None)
     df_mano_obra = pd.read_excel(file_original, sheet_name=HOJA_MANO_OBRA, header=None)
     file_original.seek(0)
 
@@ -205,7 +228,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         df_externo[NOMBRE_COL_CLAVE_EXTERNA] = df_externo[NOMBRE_COL_CLAVE_EXTERNA].astype(str).str.strip().str.replace(r'\W+', '', regex=True)
 
-        # 3. Mapeo de Cantidad Calculada, Rechazo y Peso Neto (con función auxiliar para el mapeo)
+        # 3. Mapeo de Cantidad Calculada, Rechazo y Peso Neto
         def mapear_columna(df_mapeo: pd.DataFrame, col_indice: str, col_destino: str, col_clave: str, nombre_col_mapa: str):
             """Realiza el mapeo de una columna externa al DataFrame principal."""
             mapa = df_mapeo.drop_duplicates(subset=[col_clave], keep='first').set_index(col_clave)[nombre_col_mapa]
@@ -219,11 +242,11 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         df_original[COL_SECUENCIA] = df_original[col_names['psttbjo']].apply(lambda x: obtener_secuencia(x, df_secuencias))
 
         # 5. Cálculo de Mano de Obra, Personas y Máquinas
-        # NUEVOS ÍNDICES BASADOS EN LA TABLA DEL USUARIO (A=0, C=2, D=3, E=4)
-        COL_PSTTBJO_MO = 0 # Columna A
-        COL_TIEMPO_MO = 2  # Columna C (para tiempo * 60)
-        COL_CANTIDAD_MAQUINAS_MO = 3 # Columna D
-        COL_CANTIDAD_PERSONAS_MO = 4 # Columna E
+        # Índices de df_mano_obra (A=0, C=2, D=3, E=4)
+        COL_PSTTBJO_MO = 0 
+        COL_TIEMPO_MO = 2  
+        COL_CANTIDAD_MAQUINAS_MO = 3 
+        COL_CANTIDAD_PERSONAS_MO = 4 
 
         # Limpieza de datos en df_mano_obra
         df_mano_obra[COL_PSTTBJO_MO] = df_mano_obra[COL_PSTTBJO_MO].astype(str).str.strip()
@@ -291,8 +314,8 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         wb = load_workbook(file_original)
 
         # Definición de Estilos
-        fill_anomalia = PatternFill(start_color='FFA500', end_color='FFA500', fill_type='solid') # Naranja
-        fill_encabezado = PatternFill(start_color='DDEBF7', end_color='DDEBF7', fill_type='solid') # Azul claro
+        fill_anomalia = PatternFill(start_color='FFA500', end_color='FFA500', fill_type='solid') # Naranja (Atípicos)
+        fill_encabezado = PatternFill(start_color='DDEBF7', end_color='DDEBF7', fill_type='solid') # Azul claro (Calculadas)
         font_negrita = Font(bold=True)
 
         # Crear y escribir la hoja principal procesada
@@ -302,8 +325,15 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         for row in dataframe_to_rows(df_original_final, header=True, index=False):
             ws.append(row)
 
-        # Aplicación de Formatos de Encabezado
-        indices_encabezado = [df_original_final.columns.get_loc(col) + 1 for col in COLUMNAS_A_SUMAR if col in df_original_final.columns]
+        # 4. APLICACIÓN DE FORMATOS EN HOJA PRINCIPAL
+        # Resaltamos Cant. base calculada (por ser clave) y las 4 solicitadas por el usuario.
+        COLUMNAS_ENCABEZADO_FORMATO = [COL_CANT_CALCULADA] + COLUMNAS_A_RESALTAR
+
+        indices_encabezado = [
+            df_original_final.columns.get_loc(col_name) + 1 
+            for col_name in COLUMNAS_ENCABEZADO_FORMATO
+            if col_name in df_original_final.columns
+        ]
 
         for col_idx in indices_encabezado:
             header_cell = ws.cell(row=1, column=col_idx)
@@ -321,10 +351,10 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
                 cell_to_color = ws.cell(row=r, column=col_cant_calculada_idx)
                 cell_to_color.fill = fill_anomalia
 
-        # Creación de hojas adicionales
-        crear_y_guardar_hoja(wb, df_original, "lsmw", COLUMNAS_LSMW)
-        crear_y_guardar_hoja(wb, df_original, "campos de usuario", COLUMNAS_CAMPOS_USUARIO)
-        crear_y_guardar_hoja(wb, df_original, "% de rechazo", COLUMNAS_RECHAZO)
+        # --- CREACIÓN DE HOJAS ADICIONALES (Se pasan los estilos) ---
+        crear_y_guardar_hoja(wb, df_original, "lsmw", COLUMNAS_LSMW, fill_encabezado, font_negrita)
+        crear_y_guardar_hoja(wb, df_original, "campos de usuario", COLUMNAS_CAMPOS_USUARIO, fill_encabezado, font_negrita)
+        crear_y_guardar_hoja(wb, df_original, "% de rechazo", COLUMNAS_RECHAZO, fill_encabezado, font_negrita)
 
         # Guardar el libro de trabajo modificado en un buffer de Bytes
         output_buffer = io.BytesIO()
@@ -345,7 +375,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         return False, f"❌ Ocurrió un error inesperado. Mensaje: {e}"
 
 
-# --- INTERFAZ DE STREAMLIT ---
+# --- INTERFAZ DE STREAMLIT (SIN CAMBIOS) ---
 
 def main():
     """Configura la interfaz de usuario de Streamlit."""
@@ -413,9 +443,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
 
 
 
