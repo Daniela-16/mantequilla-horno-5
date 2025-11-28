@@ -30,9 +30,9 @@ COL_NRO_PERSONAS = 'Cant_Manual'
 COL_NRO_MAQUINAS = 'Cant_Maquinas' 
 
 # Nombres de hojas a crear
-HOJA_PRINCIPAL = 'mantequilla'
+HOJA_PRINCIPAL = 'HORNO 5'
 HOJA_SECUENCIAS = 'Secuencias'
-HOJA_SALIDA = 'mantequilla_procesada'
+HOJA_SALIDA = 'HORNO5_procesado'
 
 # Definición de columnas de salida (restauradas del código original)
 COLUMNAS_LSMW = [
@@ -186,15 +186,23 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         mapa_peso_neto = df_peso_neto.drop_duplicates(subset=[nombre_material_pn], keep='first').set_index(nombre_material_pn)[nombre_peso_neto_valor]
         df_original[COL_PESO_NETO] = df_original[nombre_material].map(mapa_peso_neto)
 
-        def obtener_secuencia(puesto_trabajo):
-            psttbjo_str = str(puesto_trabajo).strip()
-            psttbjo_sec_1 = set(df_secuencias.iloc[:, 0].dropna().astype(str).str.strip())
-            psttbjo_sec_2 = set(df_secuencias.iloc[:, 3].dropna().astype(str).str.strip())
-            if psttbjo_str in psttbjo_sec_1: return 1
-            elif psttbjo_str in psttbjo_sec_2: return 2
-            return np.nan
+        def obtener_secuencia(puesto_trabajo: str, df_secuencias: pd.DataFrame) -> Union[int, float]:
+   
+        psttbjo_str = str(puesto_trabajo).strip()
+    
+        # Itera sobre todas las columnas de la hoja 'Secuencias'
+        for col_idx in range(df_secuencias.shape[1]):
 
-        df_original[COL_SECUENCIA] = df_original[nombre_psttbjo].apply(obtener_secuencia)
+            col_data = df_secuencias.iloc[:, col_idx].dropna().astype(str).str.strip()
+            psttbjo_sec = set(col_data)
+            
+            # Si el puesto de trabajo se encuentra en esta columna, 
+            # asignamos la secuencia (índice + 1)
+            if psttbjo_str in psttbjo_sec:
+                return col_idx + 1
+                
+        # Si no se encuentra en ninguna columna, retorna NaN
+        return np.nan
 
         # --- 5. CÁLCULO DE MANO DE OBRA Y MÁQUINAS (CONDICIÓN OP. TERMINADA EN '1') ---
         
@@ -422,6 +430,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
