@@ -176,17 +176,20 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
         'psttbjo': cols_original[IDX_PSTTBJO],
         'material_pn': cols_pn[IDX_MATERIAL_PN],
         'peso_neto_valor': cols_pn[2],
+        'cols_original': cols_original, # Añadido aquí para mejor manejo
+        'hoja_principal': hoja_principal # Añadido aquí para mejor manejo
     }
 
     # Definir las columnas a leer de la hoja principal
     usecols_original = list(range(len(cols_original)))
     
-    # Si es HORNO 1, aseguramos que se lea la columna T (Línea)
+    # Si es HORNO 1, aseguramos que se lea la columna T (Línea, índice 19)
     if nombre_horno == 'HORNO 1':
+        # Si la lista de columnas es más corta que el índice 19, extendemos el rango de lectura
         if IDX_LINEA >= len(cols_original):
-            # Asumimos que la columna existe y extendemos usecols
             usecols_original.append(IDX_LINEA)
-        # Añadir el nombre de la columna Línea a col_names si es necesario
+        
+        # Asignamos un nombre esperado si no se pudo leer
         if IDX_LINEA < len(cols_original):
             col_names[COL_LINEA] = cols_original[IDX_LINEA]
         else:
@@ -198,25 +201,22 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
         file_original, 
         sheet_name=hoja_principal, 
         dtype={col_names['cant_base_leida']: str},
-        usecols=usecols_original # Leer las columnas definidas
+        usecols=usecols_original 
     )
     file_original.seek(0)
     
-    # Si la columna 'Linea' no se leyó correctamente o no existía, la creamos vacía para evitar errores
-    if nombre_horno == 'HORNO 1' and COL_LINEA not in df_original.columns:
-        # Si la columna 19 no se leyó o no tenía encabezado, intentamos forzar el nombre
-        # Esto es un parche si el encabezado de la columna T es nulo
-        if IDX_LINEA < len(cols_original) and cols_original[IDX_LINEA] not in df_original.columns:
-            df_original.rename(columns={df_original.columns[IDX_LINEA]: COL_LINEA}, inplace=True)
-        elif COL_LINEA not in df_original.columns:
-             # Si no se pudo leer con el nombre, la inicializamos a NaN
-            df_original[COL_LINEA] = np.nan
-            
-        # Re-actualizar cols_original si se renombró o si se añadió la columna
-        cols_original = df_original.columns.tolist()
-        if COL_LINEA in df_original.columns:
-             col_names[COL_LINEA] = COL_LINEA
-
+    # Manejo de la columna 'Linea' si el encabezado fue nulo o no se leyó
+    if nombre_horno == 'HORNO 1':
+        if COL_LINEA not in df_original.columns:
+            # Si la columna 19 se leyó pero no tenía encabezado, intentamos forzar el nombre
+            if IDX_LINEA < len(df_original.columns):
+                # Usamos el nombre temporal o el índice real
+                df_original.rename(columns={df_original.columns[IDX_LINEA]: COL_LINEA}, inplace=True)
+                col_names[COL_LINEA] = COL_LINEA
+            elif COL_LINEA not in df_original.columns:
+                 # Si no se pudo leer o no existe, la inicializamos a NaN
+                df_original[COL_LINEA] = np.nan
+                col_names[COL_LINEA] = COL_LINEA # Asegurar que la clave exista
 
     df_peso_neto = pd.read_excel(file_original, sheet_name='Peso neto')
     file_original.seek(0)
@@ -225,16 +225,15 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     file_original.seek(0)
     
     # ******* CORRECCIÓN PARA LA HOJA MANO DE OBRA *******
-    # Forzamos la lectura de 5 columnas (0 a 4) para evitar el error 'list index out of range' 
-    # si la Columna E (Cant_Personas) no tiene datos en las primeras filas.
-    columnas_mano_obra = [0, 1, 2, 3, 4] # Índices esperados
+    # Lectura forzada de 5 columnas para la hoja Mano de obra
+    columnas_mano_obra = [0, 1, 2, 3, 4] 
     
     df_mano_obra = pd.read_excel(
         file_original, 
         sheet_name=HOJA_MANO_OBRA, 
         header=None, 
-        usecols=range(len(columnas_mano_obra)), # Lectura forzada de 5 columnas
-        names=columnas_mano_obra # Nombramos las columnas con los índices esperados
+        usecols=range(len(columnas_mano_obra)), 
+        names=columnas_mano_obra 
     )
     file_original.seek(0)
     # ******* FIN DE CORRECCIÓN *******
@@ -254,8 +253,6 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
 
     # Guardar nombres de columnas externas leídas
     col_names['nombre_col_rechazo_externa'] = nombre_col_rechazo_externa
-    col_names['cols_original'] = cols_original
-    col_names['hoja_principal'] = hoja_principal
 
     return df_original, df_externo, df_peso_neto, df_secuencias, df_mano_obra, col_names
 
@@ -301,7 +298,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
                 raise KeyError(f"Columna '{col_name}' no encontrada en la hoja '{col_names['hoja_principal']}'.")
             return df[col_name].astype(str).str.strip().str.replace(r'\W+', '', regex=True)
 
-        # Usamos los nombres de columna reales de df_original, no los índices directos
+        # Usamos los nombres de columna reales de df_original
         material_col_name = col_names['material']
         grplf_col_name = col_names['cols_original'][IDX_GRPLF]
         psttbjo_col_name = col_names['psttbjo']
@@ -320,11 +317,17 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         if nombre_horno == 'HORNO 1':
             st.info("⚠️ Aplicando lógica especial: La secuencia del HORNO 1 se calcula con PstoTbjo y Línea.")
             
-            # Limpiar la columna de línea y reemplazar NaN con cadena vacía para la concatenación
-            linea_limpia = df_original.get(COL_LINEA, pd.Series([''] * len(df_original))).astype(str).str.strip().replace('', np.nan)
+            # Obtener y limpiar la columna de línea
+            # Usamos .get() con Series vacía como fallback si por alguna razón COL_LINEA no está
+            linea_data = df_original.get(COL_LINEA, pd.Series([''] * len(df_original)))
+            
+            # Reemplazar NaN o valores vacíos/solo espacios con una marca de NaN para la lógica
+            linea_limpia = linea_data.astype(str).str.strip()
+            linea_limpia[linea_limpia == ''] = np.nan
+            
             psttbjo_limpio = df_original[psttbjo_col_name].astype(str).str.strip()
             
-            # Crear la columna concatenada (PstoTbjo si Línea es NaN/vacío, PstoTbjo + Línea si no)
+            # Crear la columna concatenada: PstoTbjo + Línea si Línea tiene valor, sino solo PstoTbjo
             df_original[COL_PSTTBJO_CONCATENADO] = np.where(
                 pd.isna(linea_limpia),
                 psttbjo_limpio,
@@ -352,12 +355,12 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         COL_PSTTBJO_MO = 0 
         COL_TIEMPO_MO = 2 
         COL_CANTIDAD_MAQUINAS_MO = 3 
-        COL_CANTIDAD_PERSONAS_MO = 4 # Ahora sabemos que este índice existe gracias a la corrección
+        COL_CANTIDAD_PERSONAS_MO = 4 
 
         # Limpieza de datos en df_mano_obra
         df_mano_obra[COL_PSTTBJO_MO] = df_mano_obra[COL_PSTTBJO_MO].astype(str).str.strip()
         for col_idx in [COL_TIEMPO_MO, COL_CANTIDAD_MAQUINAS_MO, COL_CANTIDAD_PERSONAS_MO]:
-            # Convertimos a numérico, los NaNs generados por la lectura de celdas vacías se manejan aquí.
+            # Convertimos a numérico
             df_mano_obra[col_idx] = pd.to_numeric(df_mano_obra[col_idx], errors='coerce') 
 
         # Filtro: Solo operaciones que terminan en '1'
@@ -411,7 +414,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         cols_agrupamiento = [COL_PESO_NETO, COL_SECUENCIA]
         for col in cols_agrupamiento:
             if col not in df_original.columns:
-                 # Si falta una columna clave (esto solo debería ocurrir si los mapeos fallan)
                  raise KeyError(f"Columna de agrupamiento '{col}' falta en el DataFrame. Se necesita para calcular atípicos.")
 
         df_original[COL_ATIPICO] = df_original.groupby(cols_agrupamiento, dropna=True).apply(
@@ -420,6 +422,10 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
 
         # 8. Reconstrucción Final y Guardado con Formato
+        # Si se creó la columna de concatenación para HORNO 1, la eliminamos para el output final
+        if COL_PSTTBJO_CONCATENADO in df_original.columns:
+             df_original = df_original.drop(columns=[COL_PSTTBJO_CONCATENADO])
+             
         df_original_final = df_original.reindex(columns=[c for c in FINAL_COL_ORDER if c in df_original.columns])
 
         # Cargar el libro de trabajo desde el buffer (Para mantener las hojas originales)
@@ -478,7 +484,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
     except KeyError as ke:
         return False, f"❌ ERROR CRÍTICO DE ENCABEZADO: El script no encontró la columna {ke}. Verifique las hojas y encabezados del archivo original o externo. Asegúrese que el nombre de la hoja principal **{config['HOJA_PRINCIPAL']}** es correcto."
     except IndexError as ie:
-        # Este error es menos probable con la corrección, pero lo mantenemos por si acaso
         return False, f"❌ ERROR CRÍTICO DE ÍNDICE: Un índice de columna está fuera de rango. Mensaje: {ie}"
     except ValueError as ve:
         if 'sheetname' in str(ve) or 'Worksheet' in str(ve):
@@ -508,7 +513,8 @@ def main():
         "**1. Seleccione el Horno a Procesar:**",
         hornos_disponibles,
         index=hornos_disponibles.index('HORNO 5') if 'HORNO 5' in hornos_disponibles else 0,
-        horizontal=True
+        horizontal=True,
+        key="horno_selector" # <<<< CLAVE AÑADIDA PARA EVITAR StreamlitDuplicateElementId >>>>
     )
     st.markdown("---")
     
@@ -524,20 +530,22 @@ def main():
         file_original = st.file_uploader(
             f"Carga la base de datos original",
             type=['xlsx'],
-            help=f"El archivo debe contener las hojas: **{hoja_principal}**, 'Peso neto', '{HOJA_SECUENCIAS}' y '{HOJA_MANO_OBRA}'."
+            help=f"El archivo debe contener las hojas: **{hoja_principal}**, 'Peso neto', '{HOJA_SECUENCIAS}' y '{HOJA_MANO_OBRA}'.",
+            key="file_original_uploader" 
         )
 
     with col2:
         file_externa = st.file_uploader(
             "Carga el archivo externo de toma de información.",
             type=['xlsb', 'xlsx'],
-            help="El archivo que contiene la hoja 'Especif y Rutas'."
+            help="El archivo que contiene la hoja 'Especif y Rutas'.",
+            key="file_externa_uploader" 
         )
 
     st.markdown("---")
 
     # Botón de ejecución y manejo del proceso
-    if st.button(f"▶️ PROCESAR {selected_horno}", type="primary", use_container_width=True):
+    if st.button(f"▶️ PROCESAR {selected_horno}", type="primary", use_container_width=True, key="process_button"):
         if file_original is None or file_externa is None:
             st.error("Por favor, cargue ambos archivos antes de procesar.")
         else:
@@ -556,8 +564,7 @@ def main():
             if success:
                 st.success(f"✅ Proceso para **{selected_horno}** completado exitosamente.")
 
-                # Botón de Descarga
-                # Intentamos crear un nombre de archivo limpio
+                # Nombre de archivo de salida
                 base_name = file_original.name.split('.')[0]
                 if hoja_principal in base_name:
                     file_name_output = base_name.replace(hoja_principal, '') + f"{hoja_salida}.xlsx"
@@ -577,8 +584,6 @@ def main():
                 st.warning(resultado)
                 st.write("Verifique el formato de las hojas y los nombres de las columnas en sus archivos.")
 
-if __name__ == "__main__":
-    main()
 if __name__ == "__main__":
     main()
 
