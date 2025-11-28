@@ -16,13 +16,13 @@ from collections import Counter
 import re
 from typing import Tuple, Union, Dict, Any
 
-# --- NOMBRES DE COLUMNAS CLAVE Y CONSTANTES ---
+# --- NOMBRES DE COLUMNAS CLAVE Y CONSTANTES COMUNES ---
 COL_CANT_CALCULADA = 'Cant. base calculada'
 COL_PESO_NETO = 'peso neto'
 COL_SECUENCIA = 'secuencia recurso'
 COL_ATIPICO = 'Atipico_Cant_Calculada'
 COL_MANO_OBRA = 'Mano de obra'
-HOJA_MANO_OBRA = 'Mano de obra'
+HOJA_MANO_OBRA = 'Mano de obra' # Esta hoja es común
 COL_SUMA_VALORES = 'suma valores'
 COL_PORCENTAJE_RECHAZO = '%de rechazo'
 COL_NRO_PERSONAS = 'Cant_Manual'
@@ -33,20 +33,21 @@ NOMBRE_COL_CANTIDAD_BASE = 'Cantidad base'
 NOMBRE_COL_CLAVE_EXTERNA = 'MaterialHorno'
 NOMBRE_COL_CANT_EXTERNA = 'CantidadBaseXHora'
 
-# Nombres de hojas a crear
-HOJA_PRINCIPAL = 'HORNO 5'
-HOJA_SECUENCIAS = 'Secuencias'
-HOJA_SALIDA = 'HORNO5_procesado'
+# Nombres de hojas a crear (Comunes)
+HOJA_SECUENCIAS = 'Secuencias' # Esta hoja es común
+HOJA_LSMW = 'lsmw'
+HOJA_CAMPOS_USUARIO = 'campos de usuario'
+HOJA_PORCENTAJE_RECHAZO = '% de rechazo'
 
 # Columnas a resaltar en todas las hojas (solicitado por el usuario)
 COLUMNAS_A_RESALTAR = [
     COL_MANO_OBRA,
     COL_SUMA_VALORES,
-    COL_NRO_PERSONAS, # Cant_Manual
-    COL_NRO_MAQUINAS  # Cant_Maquinas
+    COL_NRO_PERSONAS,
+    COL_NRO_MAQUINAS
 ]
 
-# Definición de columnas de salida
+# Definición de columnas de salida (Comunes)
 COLUMNAS_LSMW = [
     'PstoTbjo', 'GrpHRuta', 'CGH', 'Material', 'Ce.', 'Op.',
     COL_CANT_CALCULADA, 'ValPref', 'ValPref1', COL_MANO_OBRA, 'ValPref3',
@@ -63,15 +64,36 @@ COLUMNAS_RECHAZO = [
     '% rechazo anterior', 'Diferencia', 'Txt.brv.HRuta'
 ]
 
-# Índices para el archivo original
+# --- CONSTANTES ESPECÍFICAS DE CADA HORNO ---
+HORNOS_CONFIG = {
+    'HORNO 5': {
+        'HOJA_PRINCIPAL': 'HORNO 5',
+        'HOJA_SALIDA': 'HORNO5_procesado',
+        # Puedes añadir más constantes si los índices o nombres cambian por horno
+    },
+    'HORNO 12': {
+        'HOJA_PRINCIPAL': 'HORNO 12',
+        'HOJA_SALIDA': 'HORNO12_procesado',
+    },
+    'HORNO 1': {
+        'HOJA_PRINCIPAL': 'HORNO 1',
+        'HOJA_SALIDA': 'HORNO1_procesado',
+    },
+    'HORNO 3': {
+        'HOJA_PRINCIPAL': 'HORNO 3',
+        'HOJA_SALIDA': 'HORNO3_procesado',
+    },
+}
+
+# Índices para el archivo original (ASUMO QUE SON COMUNES)
 IDX_MATERIAL = 2
 IDX_GRPLF = 4
 IDX_PSTTBJO = 18
 IDX_CANTIDAD_BASE = 6
 IDX_MATERIAL_PN = 0
-IDX_RECHAZO_EXTERNA = 28 
+IDX_RECHAZO_EXTERNA = 28
 
-# --- FUNCIONES DE LÓGICA ---
+# --- FUNCIONES DE LÓGICA (Sin cambios funcionales, solo se añadió el parámetro de config) ---
 
 def detectar_y_marcar_cantidad_atipica(grupo: pd.DataFrame) -> pd.Series:
     """Identifica valores atípicos (diferentes de la moda) en Cant. base calculada dentro de un grupo."""
@@ -131,11 +153,14 @@ def obtener_secuencia(puesto_trabajo: str, df_secuencias: pd.DataFrame) -> Union
 
     return np.nan
 
-def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.BytesIO) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, str]]:
+def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.BytesIO, nombre_horno: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, str]]:
     """Carga todos los DataFrames necesarios desde los buffers de archivo."""
+    
+    config = HORNOS_CONFIG[nombre_horno]
+    hoja_principal = config['HOJA_PRINCIPAL']
 
     # Leer encabezados del archivo original para obtener nombres de columnas por índice
-    cols_original = pd.read_excel(file_original, sheet_name=HOJA_PRINCIPAL, nrows=0).columns.tolist()
+    cols_original = pd.read_excel(file_original, sheet_name=hoja_principal, nrows=0).columns.tolist()
     file_original.seek(0)
     
     # Mapeo de nombres originales a nombres estandarizados
@@ -150,7 +175,8 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     }
 
     # Carga de DataFrames
-    df_original = pd.read_excel(file_original, sheet_name=HOJA_PRINCIPAL, dtype={col_names['cant_base_leida']: str})
+    # ******* Se usa la hoja principal dinámica *******
+    df_original = pd.read_excel(file_original, sheet_name=hoja_principal, dtype={col_names['cant_base_leida']: str})
     file_original.seek(0)
 
     df_peso_neto = pd.read_excel(file_original, sheet_name='Peso neto')
@@ -178,17 +204,21 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     # Guardar nombres de columnas externas leídas
     col_names['nombre_col_rechazo_externa'] = nombre_col_rechazo_externa
     col_names['cols_original'] = cols_original
+    col_names['hoja_principal'] = hoja_principal # Añadir al diccionario
 
     return df_original, df_externo, df_peso_neto, df_secuencias, df_mano_obra, col_names
 
 # --- FUNCIÓN PRINCIPAL REFACTORIZADA ---
 
-def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_info_externa: io.BytesIO) -> Tuple[bool, Union[str, io.BytesIO]]:
+def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_info_externa: io.BytesIO, nombre_horno: str) -> Tuple[bool, Union[str, io.BytesIO]]:
     """
     Ejecuta toda la lógica de procesamiento.
     Recibe objetos de archivo (buffers) y devuelve un buffer de bytes para la descarga.
     """
-
+    
+    config = HORNOS_CONFIG[nombre_horno]
+    HOJA_SALIDA = config['HOJA_SALIDA']
+    
     FINAL_COL_ORDER = [
         'GrpHRuta', 'CGH', 'Material', COL_CLAVE, 'Ce.', 'GrPlf', 'Op.',
         COL_PORCENTAJE_RECHAZO, NOMBRE_COL_CANTIDAD_BASE, COL_CANT_CALCULADA,
@@ -209,15 +239,19 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
     try:
         st.write("---")
-        st.subheader("Preparando datos... 📊")
+        st.subheader(f"Preparando datos para **{nombre_horno}**... 📊")
 
-        # 1. Carga y limpieza de datos
-        df_original, df_externo, df_peso_neto, df_secuencias, df_mano_obra, col_names = cargar_y_limpiar_datos(file_original, file_info_externa)
+        # 1. Carga y limpieza de datos (Se pasa el nombre del horno)
+        df_original, df_externo, df_peso_neto, df_secuencias, df_mano_obra, col_names = cargar_y_limpiar_datos(file_original, file_info_externa, nombre_horno)
 
         # 2. Creación de la Clave de Búsqueda
         def limpiar_col(df: pd.DataFrame, idx: int) -> pd.Series:
             """Extrae, limpia (quita caracteres no alfanuméricos) y estandariza columnas por su índice original."""
             col_name = col_names['cols_original'][idx]
+            # Asegura que la columna existe en el DataFrame
+            if col_name not in df.columns:
+                # Este caso debería ser capturado por el KeyError en la función de carga, pero es un resguardo
+                raise KeyError(f"Columna de índice {idx} ('{col_name}') no encontrada en la hoja '{col_names['hoja_principal']}'.")
             return df[col_name].astype(str).str.strip().str.replace(r'\W+', '', regex=True)
 
         df_original[COL_CLAVE] = (
@@ -259,12 +293,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         indices_terminan_en_1 = op_col.str.endswith('1')
         psttbjo_filtrado = df_original.loc[indices_terminan_en_1, col_names['psttbjo']].astype(str).str.strip()
 
-        # Mapeos para Mano de Obra, Personas y Máquinas
-        def mapear_mo_filtros(col_origen: int, col_destino: str):
-            """Genera el mapa y aplica el mapeo solo a las filas filtradas."""
-            mapa = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MO], keep='first').set_index(COL_PSTTBJO_MO)[col_origen]
-            df_original.loc[indices_terminan_en_1, col_destino] = psttbjo_filtrado.map(mapa)
-
         # 5.1. Tiempo de Mano de Obra (Personas * 60)
         df_mano_obra['Calculo_MO_Tiempo'] = df_mano_obra[COL_TIEMPO_MO] * 60
         mapa_mano_obra_tiempo = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MO], keep='first').set_index(COL_PSTTBJO_MO)['Calculo_MO_Tiempo']
@@ -273,11 +301,13 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         # 5.2. Número de Personas (Columna E)
         df_original[COL_NRO_PERSONAS] = np.nan
-        mapear_mo_filtros(COL_CANTIDAD_PERSONAS_MO, COL_NRO_PERSONAS)
+        mapa_personas = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MO], keep='first').set_index(COL_PSTTBJO_MO)[COL_CANTIDAD_PERSONAS_MO]
+        df_original.loc[indices_terminan_en_1, COL_NRO_PERSONAS] = psttbjo_filtrado.map(mapa_personas)
 
         # 5.3. Número de Máquinas (Columna D)
         df_original[COL_NRO_MAQUINAS] = np.nan
-        mapear_mo_filtros(COL_CANTIDAD_MAQUINAS_MO, COL_NRO_MAQUINAS)
+        mapa_maquinas = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MO], keep='first').set_index(COL_PSTTBJO_MO)[COL_CANTIDAD_MAQUINAS_MO]
+        df_original.loc[indices_terminan_en_1, COL_NRO_MAQUINAS] = psttbjo_filtrado.map(mapa_maquinas)
 
         # 6. Suma de Valores y formato
         def formato_excel_regional_suma(x):
@@ -301,7 +331,15 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         # Atípicos
         df_original[COL_CANT_CALCULADA] = I # Reutilizar la serie I ya convertida a numérico
-        df_original[COL_ATIPICO] = df_original.groupby([COL_PESO_NETO, COL_SECUENCIA], dropna=True).apply(
+        # Se verifica que las columnas de agrupamiento existan antes de agrupar
+        cols_agrupamiento = [COL_PESO_NETO, COL_SECUENCIA]
+        for col in cols_agrupamiento:
+            if col not in df_original.columns:
+                 # Si faltan, asumimos que no hay atípicos por agrupamiento, o se usa otro método
+                 # Para mantener la lógica, forzamos un valor por defecto si falta la columna.
+                 raise KeyError(f"Columna de agrupamiento '{col}' falta en el DataFrame. Se necesita para calcular atípicos.")
+
+        df_original[COL_ATIPICO] = df_original.groupby(cols_agrupamiento, dropna=True).apply(
             detectar_y_marcar_cantidad_atipica
         ).reset_index(level=[0, 1], drop=True).fillna(False)
 
@@ -344,7 +382,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         try:
             col_cant_calculada_idx = df_original_final.columns.get_loc(COL_CANT_CALCULADA) + 1
         except KeyError:
-            col_cant_calculada_idx = 9
+            col_cant_calculada_idx = 9 # Índice por defecto si el nombre no se encuentra, basado en el orden de FINAL_COL_ORDER
 
         for r in range(2, len(df_original) + 2):
             if df_original.iloc[r-2][COL_ATIPICO]:
@@ -352,9 +390,9 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
                 cell_to_color.fill = fill_anomalia
 
         # --- CREACIÓN DE HOJAS ADICIONALES (Se pasan los estilos) ---
-        crear_y_guardar_hoja(wb, df_original, "lsmw", COLUMNAS_LSMW, fill_encabezado, font_negrita)
-        crear_y_guardar_hoja(wb, df_original, "campos de usuario", COLUMNAS_CAMPOS_USUARIO, fill_encabezado, font_negrita)
-        crear_y_guardar_hoja(wb, df_original, "% de rechazo", COLUMNAS_RECHAZO, fill_encabezado, font_negrita)
+        crear_y_guardar_hoja(wb, df_original, HOJA_LSMW, COLUMNAS_LSMW, fill_encabezado, font_negrita)
+        crear_y_guardar_hoja(wb, df_original, HOJA_CAMPOS_USUARIO, COLUMNAS_CAMPOS_USUARIO, fill_encabezado, font_negrita)
+        crear_y_guardar_hoja(wb, df_original, HOJA_PORCENTAJE_RECHAZO, COLUMNAS_RECHAZO, fill_encabezado, font_negrita)
 
         # Guardar el libro de trabajo modificado en un buffer de Bytes
         output_buffer = io.BytesIO()
@@ -364,50 +402,69 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         return True, output_buffer
 
     except KeyError as ke:
-        return False, f"❌ ERROR CRÍTICO DE ENCABEZADO: El script no encontró la columna {ke}. Verifique las hojas y encabezados del archivo original o externo."
+        return False, f"❌ ERROR CRÍTICO DE ENCABEZADO: El script no encontró la columna {ke}. Verifique las hojas y encabezados del archivo original o externo. Asegúrese que el nombre de la hoja principal **{config['HOJA_PRINCIPAL']}** es correcto."
     except IndexError as ie:
         return False, f"❌ ERROR CRÍTICO DE ÍNDICE: Asegúrese de que la hoja '{HOJA_MANO_OBRA}' tenga al menos 5 columnas (hasta la Columna E). Mensaje: {ie}"
     except ValueError as ve:
         if 'sheetname' in str(ve) or 'Worksheet' in str(ve):
-            return False, f"❌ Error de Lectura de Hoja: Una de las hojas clave ({HOJA_PRINCIPAL}, Peso neto, {HOJA_SECUENCIAS}, {HOJA_MANO_OBRA}, 'Especif y Rutas') no se encontró en los archivos cargados. Mensaje: {ve}"
+            hojas_requeridas = [config['HOJA_PRINCIPAL'], 'Peso neto', HOJA_SECUENCIAS, HOJA_MANO_OBRA, 'Especif y Rutas']
+            return False, f"❌ Error de Lectura de Hoja: Una de las hojas clave ({', '.join(hojas_requeridas)}) no se encontró en los archivos cargados. Mensaje: {ve}"
         return False, f"❌ Ocurrió un error inesperado de valor. Mensaje: {ve}"
     except Exception as e:
         return False, f"❌ Ocurrió un error inesperado. Mensaje: {e}"
 
 
-# --- INTERFAZ DE STREAMLIT (SIN CAMBIOS) ---
+# --- INTERFAZ DE STREAMLIT (CON SELECTOR DE HORNO) ---
 
 def main():
     """Configura la interfaz de usuario de Streamlit."""
     st.set_page_config(
-        page_title="Automatización Horno 5",
+        page_title="Automatización Hornos",
         layout="centered",
         initial_sidebar_state="auto"
     )
 
     st.title("⚙️ Automatización Verificación de datos - HORNOS")
-    st.markdown("Cargue los dos archivos requeridos para generar el reporte procesado")
+    st.markdown("Seleccione el Horno a procesar y luego cargue los archivos.")
 
+    # **********************************************
+    # ** NUEVA SECCIÓN: SELECCIÓN DEL HORNO **
+    # **********************************************
+    hornos_disponibles = list(HORNOS_CONFIG.keys())
+    selected_horno = st.radio(
+        "**1. Seleccione el Horno a Procesar:**",
+        hornos_disponibles,
+        index=hornos_disponibles.index('HORNO 5') if 'HORNO 5' in hornos_disponibles else 0,
+        horizontal=True
+    )
+    st.markdown("---")
+    
+    config = HORNOS_CONFIG[selected_horno]
+    hoja_principal = config['HOJA_PRINCIPAL']
+    hoja_salida = config['HOJA_SALIDA']
+
+    st.subheader(f"2. Carga de Archivos para **{selected_horno}**")
+    
     col1, col2 = st.columns(2)
 
     with col1:
         file_original = st.file_uploader(
-            "Carga la base de datos original",
+            f"Carga la base de datos original (Debe contener la hoja '{hoja_principal}')",
             type=['xlsx'],
-            help=f"El archivo que contiene las hojas: {HOJA_PRINCIPAL}, 'Peso neto', {HOJA_SECUENCIAS} y '{HOJA_MANO_OBRA}'."
+            help=f"El archivo que contiene las hojas: **{hoja_principal}**, 'Peso neto', '{HOJA_SECUENCIAS}' y '{HOJA_MANO_OBRA}'."
         )
 
     with col2:
         file_externa = st.file_uploader(
             "Carga el archivo externo de toma de información.",
             type=['xlsb', 'xlsx'],
-            help="El archivo que contiene la hoja 'Especif y Rutas' para la Cantidad Base y el % de rechazo."
+            help="El archivo que contiene la hoja 'Especif y Rutas'."
         )
 
     st.markdown("---")
 
     # Botón de ejecución y manejo del proceso
-    if st.button("▶️ PROCESAR HORNO 5", type="primary", use_container_width=True):
+    if st.button(f"▶️ PROCESAR {selected_horno}", type="primary", use_container_width=True):
         if file_original is None or file_externa is None:
             st.error("Por favor, cargue ambos archivos antes de procesar.")
         else:
@@ -416,26 +473,29 @@ def main():
             file_buffer_externa = io.BytesIO(file_externa.getvalue())
 
             # Usar st.spinner para mostrar progreso
-            with st.spinner('Procesando datos y generando reporte...'):
+            with st.spinner(f'Procesando datos y generando reporte para {selected_horno}...'):
+                # ******* Se pasa el nombre del horno a la función principal *******
                 success, resultado = automatizacion_final_diferencia_reforzada(
                     file_buffer_original,
-                    file_buffer_externa
+                    file_buffer_externa,
+                    selected_horno
                 )
 
             st.markdown("---")
 
             if success:
-                st.success("✅ Proceso completado exitosamente.")
+                st.success(f"✅ Proceso para **{selected_horno}** completado exitosamente.")
 
                 # Botón de Descarga
+                file_name_output = file_original.name.split('.')[0].replace(f"_{hoja_principal.replace(' ', '')}", '') + f"_{hoja_salida}.xlsx"
                 st.download_button(
                     label="⬇️ Descargar Archivo Procesado",
                     data=resultado, # El buffer de bytes es el archivo final
-                    file_name=file_original.name.split('.')[0] + "_procesado.xlsx",
+                    file_name=file_name_output,
                     mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     use_container_width=True
                 )
-                st.info(f"El archivo descargado contiene todas las hojas originales más las 4 hojas de reporte: {HOJA_SALIDA}, 'lsmw', 'campos de usuario' y '% de rechazo'.")
+                st.info(f"El archivo descargado contiene todas las hojas originales más las 4 hojas de reporte: **{hoja_salida}**, '{HOJA_LSMW}', '{HOJA_CAMPOS_USUARIO}' y '{HOJA_PORCENTAJE_RECHAZO}'.")
             else:
                 st.error("❌ Error en el Proceso")
                 st.warning(resultado)
@@ -443,5 +503,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
