@@ -69,7 +69,6 @@ HORNOS_CONFIG = {
     'HORNO 5': {
         'HOJA_PRINCIPAL': 'HORNO 5',
         'HOJA_SALIDA': 'HORNO5_procesado',
-        # Puedes añadir más constantes si los índices o nombres cambian por horno
     },
     'HORNO 12': {
         'HOJA_PRINCIPAL': 'HORNO 12',
@@ -93,7 +92,7 @@ IDX_CANTIDAD_BASE = 6
 IDX_MATERIAL_PN = 0
 IDX_RECHAZO_EXTERNA = 28
 
-# --- FUNCIONES DE LÓGICA (Sin cambios funcionales, solo se añadió el parámetro de config) ---
+# --- FUNCIONES DE LÓGICA ---
 
 def detectar_y_marcar_cantidad_atipica(grupo: pd.DataFrame) -> pd.Series:
     """Identifica valores atípicos (diferentes de la moda) en Cant. base calculada dentro de un grupo."""
@@ -143,7 +142,6 @@ def obtener_secuencia(puesto_trabajo: str, df_secuencias: pd.DataFrame) -> Union
     """Busca la secuencia del puesto de trabajo en la hoja 'Secuencias'."""
     psttbjo_str = str(puesto_trabajo).strip()
 
-    # Itera sobre todas las columnas de la hoja 'Secuencias'
     for col_idx in range(df_secuencias.shape[1]):
         col_data = df_secuencias.iloc[:, col_idx].dropna().astype(str).str.strip()
         psttbjo_sec = set(col_data)
@@ -159,12 +157,14 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     config = HORNOS_CONFIG[nombre_horno]
     hoja_principal = config['HOJA_PRINCIPAL']
 
-    # Leer encabezados del archivo original para obtener nombres de columnas por índice
+    # --- 1. Lectura de Archivo Original ---
+    # Leer encabezados de la hoja principal (para obtener nombres de columnas por índice)
     cols_original = pd.read_excel(file_original, sheet_name=hoja_principal, nrows=0).columns.tolist()
     file_original.seek(0)
     
-    # Mapeo de nombres originales a nombres estandarizados
+    # Leer encabezados de Peso neto (para obtener nombres de columnas por índice)
     cols_pn = pd.read_excel(file_original, sheet_name='Peso neto', nrows=0).columns.tolist()
+    file_original.seek(0)
     
     col_names = {
         'cant_base_leida': cols_original[IDX_CANTIDAD_BASE],
@@ -175,7 +175,6 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     }
 
     # Carga de DataFrames
-    # ******* Se usa la hoja principal dinámica *******
     df_original = pd.read_excel(file_original, sheet_name=hoja_principal, dtype={col_names['cant_base_leida']: str})
     file_original.seek(0)
 
@@ -184,11 +183,23 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
 
     df_secuencias = pd.read_excel(file_original, sheet_name=HOJA_SECUENCIAS)
     file_original.seek(0)
-
-    df_mano_obra = pd.read_excel(file_original, sheet_name=HOJA_MANO_OBRA, header=None)
+    
+    # ******* CORRECCIÓN PARA LA HOJA MANO DE OBRA *******
+    # Forzamos la lectura de 5 columnas (0 a 4) para evitar el error 'list index out of range' 
+    # si la Columna E (Cant_Personas) no tiene datos en las primeras filas.
+    columnas_mano_obra = [0, 1, 2, 3, 4] # Índices esperados
+    
+    df_mano_obra = pd.read_excel(
+        file_original, 
+        sheet_name=HOJA_MANO_OBRA, 
+        header=None, 
+        usecols=range(len(columnas_mano_obra)), # Lectura forzada de 5 columnas
+        names=columnas_mano_obra # Nombramos las columnas con los índices esperados
+    )
     file_original.seek(0)
+    # ******* FIN DE CORRECCIÓN *******
 
-    # Lectura de archivo externo
+    # --- 2. Lectura de Archivo Externo ---
     cols_externo = pd.read_excel(file_info_externa, sheet_name='Especif y Rutas', nrows=0).columns.tolist()
     file_info_externa.seek(0)
 
@@ -204,16 +215,15 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     # Guardar nombres de columnas externas leídas
     col_names['nombre_col_rechazo_externa'] = nombre_col_rechazo_externa
     col_names['cols_original'] = cols_original
-    col_names['hoja_principal'] = hoja_principal # Añadir al diccionario
+    col_names['hoja_principal'] = hoja_principal
 
     return df_original, df_externo, df_peso_neto, df_secuencias, df_mano_obra, col_names
 
-# --- FUNCIÓN PRINCIPAL REFACTORIZADA ---
+# --- FUNCIÓN PRINCIPAL DE PROCESAMIENTO ---
 
 def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_info_externa: io.BytesIO, nombre_horno: str) -> Tuple[bool, Union[str, io.BytesIO]]:
     """
     Ejecuta toda la lógica de procesamiento.
-    Recibe objetos de archivo (buffers) y devuelve un buffer de bytes para la descarga.
     """
     
     config = HORNOS_CONFIG[nombre_horno]
@@ -248,10 +258,8 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         def limpiar_col(df: pd.DataFrame, idx: int) -> pd.Series:
             """Extrae, limpia (quita caracteres no alfanuméricos) y estandariza columnas por su índice original."""
             col_name = col_names['cols_original'][idx]
-            # Asegura que la columna existe en el DataFrame
             if col_name not in df.columns:
-                # Este caso debería ser capturado por el KeyError en la función de carga, pero es un resguardo
-                raise KeyError(f"Columna de índice {idx} ('{col_name}') no encontrada en la hoja '{col_names['hoja_principal']}'.")
+                 raise KeyError(f"Columna de índice {idx} ('{col_name}') no encontrada en la hoja '{col_names['hoja_principal']}'.")
             return df[col_name].astype(str).str.strip().str.replace(r'\W+', '', regex=True)
 
         df_original[COL_CLAVE] = (
@@ -280,18 +288,25 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         COL_PSTTBJO_MO = 0 
         COL_TIEMPO_MO = 2  
         COL_CANTIDAD_MAQUINAS_MO = 3 
-        COL_CANTIDAD_PERSONAS_MO = 4 
+        COL_CANTIDAD_PERSONAS_MO = 4 # Ahora sabemos que este índice existe gracias a la corrección
 
         # Limpieza de datos en df_mano_obra
         df_mano_obra[COL_PSTTBJO_MO] = df_mano_obra[COL_PSTTBJO_MO].astype(str).str.strip()
         for col_idx in [COL_TIEMPO_MO, COL_CANTIDAD_MAQUINAS_MO, COL_CANTIDAD_PERSONAS_MO]:
-            df_mano_obra[col_idx] = pd.to_numeric(df_mano_obra[col_idx], errors='coerce')
+            # Convertimos a numérico, los NaNs generados por la lectura de celdas vacías se manejan aquí.
+            df_mano_obra[col_idx] = pd.to_numeric(df_mano_obra[col_idx], errors='coerce') 
 
         # Filtro: Solo operaciones que terminan en '1'
         COL_OP = 'Op.'
         op_col = df_original[COL_OP].astype(str).str.strip()
         indices_terminan_en_1 = op_col.str.endswith('1')
         psttbjo_filtrado = df_original.loc[indices_terminan_en_1, col_names['psttbjo']].astype(str).str.strip()
+
+        # Mapeos para Mano de Obra, Personas y Máquinas
+        def mapear_mo_filtros(col_origen: int, col_destino: str):
+            """Genera el mapa y aplica el mapeo solo a las filas filtradas."""
+            mapa = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MO], keep='first').set_index(COL_PSTTBJO_MO)[col_origen]
+            df_original.loc[indices_terminan_en_1, col_destino] = psttbjo_filtrado.map(mapa)
 
         # 5.1. Tiempo de Mano de Obra (Personas * 60)
         df_mano_obra['Calculo_MO_Tiempo'] = df_mano_obra[COL_TIEMPO_MO] * 60
@@ -301,13 +316,11 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         # 5.2. Número de Personas (Columna E)
         df_original[COL_NRO_PERSONAS] = np.nan
-        mapa_personas = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MO], keep='first').set_index(COL_PSTTBJO_MO)[COL_CANTIDAD_PERSONAS_MO]
-        df_original.loc[indices_terminan_en_1, COL_NRO_PERSONAS] = psttbjo_filtrado.map(mapa_personas)
+        mapear_mo_filtros(COL_CANTIDAD_PERSONAS_MO, COL_NRO_PERSONAS)
 
         # 5.3. Número de Máquinas (Columna D)
         df_original[COL_NRO_MAQUINAS] = np.nan
-        mapa_maquinas = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MO], keep='first').set_index(COL_PSTTBJO_MO)[COL_CANTIDAD_MAQUINAS_MO]
-        df_original.loc[indices_terminan_en_1, COL_NRO_MAQUINAS] = psttbjo_filtrado.map(mapa_maquinas)
+        mapear_mo_filtros(COL_CANTIDAD_MAQUINAS_MO, COL_NRO_MAQUINAS)
 
         # 6. Suma de Valores y formato
         def formato_excel_regional_suma(x):
@@ -330,13 +343,11 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         df_original[COL_DIFERENCIA] = diferencia_calculada.apply(formato_excel_regional)
 
         # Atípicos
-        df_original[COL_CANT_CALCULADA] = I # Reutilizar la serie I ya convertida a numérico
-        # Se verifica que las columnas de agrupamiento existan antes de agrupar
+        df_original[COL_CANT_CALCULADA] = I 
         cols_agrupamiento = [COL_PESO_NETO, COL_SECUENCIA]
         for col in cols_agrupamiento:
             if col not in df_original.columns:
-                 # Si faltan, asumimos que no hay atípicos por agrupamiento, o se usa otro método
-                 # Para mantener la lógica, forzamos un valor por defecto si falta la columna.
+                 # Si falta una columna clave (esto solo debería ocurrir si los mapeos fallan)
                  raise KeyError(f"Columna de agrupamiento '{col}' falta en el DataFrame. Se necesita para calcular atípicos.")
 
         df_original[COL_ATIPICO] = df_original.groupby(cols_agrupamiento, dropna=True).apply(
@@ -364,7 +375,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             ws.append(row)
 
         # 4. APLICACIÓN DE FORMATOS EN HOJA PRINCIPAL
-        # Resaltamos Cant. base calculada (por ser clave) y las 4 solicitadas por el usuario.
         COLUMNAS_ENCABEZADO_FORMATO = [COL_CANT_CALCULADA] + COLUMNAS_A_RESALTAR
 
         indices_encabezado = [
@@ -382,7 +392,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         try:
             col_cant_calculada_idx = df_original_final.columns.get_loc(COL_CANT_CALCULADA) + 1
         except KeyError:
-            col_cant_calculada_idx = 9 # Índice por defecto si el nombre no se encuentra, basado en el orden de FINAL_COL_ORDER
+            col_cant_calculada_idx = 9 
 
         for r in range(2, len(df_original) + 2):
             if df_original.iloc[r-2][COL_ATIPICO]:
@@ -404,7 +414,8 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
     except KeyError as ke:
         return False, f"❌ ERROR CRÍTICO DE ENCABEZADO: El script no encontró la columna {ke}. Verifique las hojas y encabezados del archivo original o externo. Asegúrese que el nombre de la hoja principal **{config['HOJA_PRINCIPAL']}** es correcto."
     except IndexError as ie:
-        return False, f"❌ ERROR CRÍTICO DE ÍNDICE: Asegúrese de que la hoja '{HOJA_MANO_OBRA}' tenga al menos 5 columnas (hasta la Columna E). Mensaje: {ie}"
+        # Este error es menos probable con la corrección, pero lo mantenemos por si acaso
+        return False, f"❌ ERROR CRÍTICO DE ÍNDICE: Un índice de columna está fuera de rango. Mensaje: {ie}"
     except ValueError as ve:
         if 'sheetname' in str(ve) or 'Worksheet' in str(ve):
             hojas_requeridas = [config['HOJA_PRINCIPAL'], 'Peso neto', HOJA_SECUENCIAS, HOJA_MANO_OBRA, 'Especif y Rutas']
@@ -427,9 +438,7 @@ def main():
     st.title("⚙️ Automatización Verificación de datos - HORNOS")
     st.markdown("Seleccione el Horno a procesar y luego cargue los archivos.")
 
-    # **********************************************
-    # ** NUEVA SECCIÓN: SELECCIÓN DEL HORNO **
-    # **********************************************
+    # SELECCIÓN DEL HORNO
     hornos_disponibles = list(HORNOS_CONFIG.keys())
     selected_horno = st.radio(
         "**1. Seleccione el Horno a Procesar:**",
@@ -443,15 +452,15 @@ def main():
     hoja_principal = config['HOJA_PRINCIPAL']
     hoja_salida = config['HOJA_SALIDA']
 
-    st.subheader(f"2. Carga de Archivos para **{selected_horno}**")
+    st.subheader(f"2. Carga de Archivos para **{selected_horno}** (Hoja Principal: '{hoja_principal}')")
     
     col1, col2 = st.columns(2)
 
     with col1:
         file_original = st.file_uploader(
-            f"Carga la base de datos original (Debe contener la hoja '{hoja_principal}')",
+            f"Carga la base de datos original",
             type=['xlsx'],
-            help=f"El archivo que contiene las hojas: **{hoja_principal}**, 'Peso neto', '{HOJA_SECUENCIAS}' y '{HOJA_MANO_OBRA}'."
+            help=f"El archivo debe contener las hojas: **{hoja_principal}**, 'Peso neto', '{HOJA_SECUENCIAS}' y '{HOJA_MANO_OBRA}'."
         )
 
     with col2:
@@ -468,13 +477,10 @@ def main():
         if file_original is None or file_externa is None:
             st.error("Por favor, cargue ambos archivos antes de procesar.")
         else:
-            # Leer los archivos cargados en buffers de bytes
             file_buffer_original = io.BytesIO(file_original.getvalue())
             file_buffer_externa = io.BytesIO(file_externa.getvalue())
 
-            # Usar st.spinner para mostrar progreso
             with st.spinner(f'Procesando datos y generando reporte para {selected_horno}...'):
-                # ******* Se pasa el nombre del horno a la función principal *******
                 success, resultado = automatizacion_final_diferencia_reforzada(
                     file_buffer_original,
                     file_buffer_externa,
@@ -487,10 +493,16 @@ def main():
                 st.success(f"✅ Proceso para **{selected_horno}** completado exitosamente.")
 
                 # Botón de Descarga
-                file_name_output = file_original.name.split('.')[0].replace(f"_{hoja_principal.replace(' ', '')}", '') + f"_{hoja_salida}.xlsx"
+                # Intentamos crear un nombre de archivo limpio
+                base_name = file_original.name.split('.')[0]
+                if hoja_principal in base_name:
+                    file_name_output = base_name.replace(hoja_principal, '') + f"{hoja_salida}.xlsx"
+                else:
+                    file_name_output = f"{base_name}_{hoja_salida}.xlsx"
+                
                 st.download_button(
                     label="⬇️ Descargar Archivo Procesado",
-                    data=resultado, # El buffer de bytes es el archivo final
+                    data=resultado,
                     file_name=file_name_output,
                     mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     use_container_width=True
@@ -503,4 +515,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
