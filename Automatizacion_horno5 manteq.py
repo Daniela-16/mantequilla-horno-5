@@ -32,6 +32,9 @@ COL_DIFERENCIA = 'diferencia'
 NOMBRE_COL_CANTIDAD_BASE = 'Cantidad base'
 NOMBRE_COL_CLAVE_EXTERNA = 'MaterialHorno'
 NOMBRE_COL_CANT_EXTERNA = 'CantidadBaseXHora'
+# NUEVA CONSTANTE PARA EL CAMPO LINEA (Columna T)
+COL_LINEA = 'Linea'
+COL_PSTTBJO_CONCATENADO = 'PstoTbjo_Concat'
 
 # Nombres de hojas a crear (Comunes)
 HOJA_SECUENCIAS = 'Secuencias' # Esta hoja es común
@@ -85,9 +88,10 @@ HORNOS_CONFIG = {
 }
 
 # Índices para el archivo original (ASUMO QUE SON COMUNES)
-IDX_MATERIAL = 2
-IDX_GRPLF = 4
-IDX_PSTTBJO = 18
+IDX_MATERIAL = 2 # Columna C
+IDX_GRPLF = 4 # Columna E
+IDX_PSTTBJO = 18 # Columna S (Puesto de Trabajo)
+IDX_LINEA = 19 # Columna T (Nueva)
 IDX_CANTIDAD_BASE = 6
 IDX_MATERIAL_PN = 0
 IDX_RECHAZO_EXTERNA = 28
@@ -174,9 +178,45 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
         'peso_neto_valor': cols_pn[2],
     }
 
+    # Definir las columnas a leer de la hoja principal
+    usecols_original = list(range(len(cols_original)))
+    
+    # Si es HORNO 1, aseguramos que se lea la columna T (Línea)
+    if nombre_horno == 'HORNO 1':
+        if IDX_LINEA >= len(cols_original):
+            # Asumimos que la columna existe y extendemos usecols
+            usecols_original.append(IDX_LINEA)
+        # Añadir el nombre de la columna Línea a col_names si es necesario
+        if IDX_LINEA < len(cols_original):
+            col_names[COL_LINEA] = cols_original[IDX_LINEA]
+        else:
+            # Si el archivo no tiene la columna T, asignamos un nombre temporal
+            col_names[COL_LINEA] = 'Columna T (Linea)'
+    
     # Carga de DataFrames
-    df_original = pd.read_excel(file_original, sheet_name=hoja_principal, dtype={col_names['cant_base_leida']: str})
+    df_original = pd.read_excel(
+        file_original, 
+        sheet_name=hoja_principal, 
+        dtype={col_names['cant_base_leida']: str},
+        usecols=usecols_original # Leer las columnas definidas
+    )
     file_original.seek(0)
+    
+    # Si la columna 'Linea' no se leyó correctamente o no existía, la creamos vacía para evitar errores
+    if nombre_horno == 'HORNO 1' and COL_LINEA not in df_original.columns:
+        # Si la columna 19 no se leyó o no tenía encabezado, intentamos forzar el nombre
+        # Esto es un parche si el encabezado de la columna T es nulo
+        if IDX_LINEA < len(cols_original) and cols_original[IDX_LINEA] not in df_original.columns:
+            df_original.rename(columns={df_original.columns[IDX_LINEA]: COL_LINEA}, inplace=True)
+        elif COL_LINEA not in df_original.columns:
+             # Si no se pudo leer con el nombre, la inicializamos a NaN
+            df_original[COL_LINEA] = np.nan
+            
+        # Re-actualizar cols_original si se renombró o si se añadió la columna
+        cols_original = df_original.columns.tolist()
+        if COL_LINEA in df_original.columns:
+             col_names[COL_LINEA] = COL_LINEA
+
 
     df_peso_neto = pd.read_excel(file_original, sheet_name='Peso neto')
     file_original.seek(0)
@@ -255,20 +295,43 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         df_original, df_externo, df_peso_neto, df_secuencias, df_mano_obra, col_names = cargar_y_limpiar_datos(file_original, file_info_externa, nombre_horno)
 
         # 2. Creación de la Clave de Búsqueda
-        def limpiar_col(df: pd.DataFrame, idx: int) -> pd.Series:
-            """Extrae, limpia (quita caracteres no alfanuméricos) y estandariza columnas por su índice original."""
-            col_name = col_names['cols_original'][idx]
+        def limpiar_col(df: pd.DataFrame, col_name: str) -> pd.Series:
+            """Limpia (quita caracteres no alfanuméricos) la columna especificada."""
             if col_name not in df.columns:
-                 raise KeyError(f"Columna de índice {idx} ('{col_name}') no encontrada en la hoja '{col_names['hoja_principal']}'.")
+                raise KeyError(f"Columna '{col_name}' no encontrada en la hoja '{col_names['hoja_principal']}'.")
             return df[col_name].astype(str).str.strip().str.replace(r'\W+', '', regex=True)
 
+        # Usamos los nombres de columna reales de df_original, no los índices directos
+        material_col_name = col_names['material']
+        grplf_col_name = col_names['cols_original'][IDX_GRPLF]
+        psttbjo_col_name = col_names['psttbjo']
+
         df_original[COL_CLAVE] = (
-            limpiar_col(df_original, IDX_MATERIAL) +
-            limpiar_col(df_original, IDX_GRPLF) +
-            limpiar_col(df_original, IDX_PSTTBJO)
+            limpiar_col(df_original, material_col_name) +
+            limpiar_col(df_original, grplf_col_name) +
+            limpiar_col(df_original, psttbjo_col_name)
         )
 
         df_externo[NOMBRE_COL_CLAVE_EXTERNA] = df_externo[NOMBRE_COL_CLAVE_EXTERNA].astype(str).str.strip().str.replace(r'\W+', '', regex=True)
+
+        # --- LÓGICA ESPECÍFICA DE HORNO 1 PARA SECUENCIA ---
+        columna_para_secuencia = psttbjo_col_name
+        
+        if nombre_horno == 'HORNO 1':
+            st.info("⚠️ Aplicando lógica especial: La secuencia del HORNO 1 se calcula con PstoTbjo y Línea.")
+            
+            # Limpiar la columna de línea y reemplazar NaN con cadena vacía para la concatenación
+            linea_limpia = df_original.get(COL_LINEA, pd.Series([''] * len(df_original))).astype(str).str.strip().replace('', np.nan)
+            psttbjo_limpio = df_original[psttbjo_col_name].astype(str).str.strip()
+            
+            # Crear la columna concatenada (PstoTbjo si Línea es NaN/vacío, PstoTbjo + Línea si no)
+            df_original[COL_PSTTBJO_CONCATENADO] = np.where(
+                pd.isna(linea_limpia),
+                psttbjo_limpio,
+                psttbjo_limpio + linea_limpia
+            )
+            columna_para_secuencia = COL_PSTTBJO_CONCATENADO
+        # ---------------------------------------------------
 
         # 3. Mapeo de Cantidad Calculada, Rechazo y Peso Neto
         def mapear_columna(df_mapeo: pd.DataFrame, col_indice: str, col_destino: str, col_clave: str, nombre_col_mapa: str):
@@ -278,15 +341,16 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         mapear_columna(df_externo, COL_CLAVE, COL_CANT_CALCULADA, NOMBRE_COL_CLAVE_EXTERNA, NOMBRE_COL_CANT_EXTERNA)
         mapear_columna(df_externo, COL_CLAVE, COL_PORCENTAJE_RECHAZO, NOMBRE_COL_CLAVE_EXTERNA, col_names['nombre_col_rechazo_externa'])
-        mapear_columna(df_peso_neto, col_names['material'], COL_PESO_NETO, col_names['material_pn'], col_names['peso_neto_valor'])
+        mapear_columna(df_peso_neto, material_col_name, COL_PESO_NETO, col_names['material_pn'], col_names['peso_neto_valor'])
 
         # 4. Cálculo de Secuencia
-        df_original[COL_SECUENCIA] = df_original[col_names['psttbjo']].apply(lambda x: obtener_secuencia(x, df_secuencias))
+        # Usamos la columna condicionalmente seleccionada
+        df_original[COL_SECUENCIA] = df_original[columna_para_secuencia].apply(lambda x: obtener_secuencia(x, df_secuencias))
 
         # 5. Cálculo de Mano de Obra, Personas y Máquinas
         # Índices de df_mano_obra (A=0, C=2, D=3, E=4)
         COL_PSTTBJO_MO = 0 
-        COL_TIEMPO_MO = 2  
+        COL_TIEMPO_MO = 2 
         COL_CANTIDAD_MAQUINAS_MO = 3 
         COL_CANTIDAD_PERSONAS_MO = 4 # Ahora sabemos que este índice existe gracias a la corrección
 
@@ -300,7 +364,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         COL_OP = 'Op.'
         op_col = df_original[COL_OP].astype(str).str.strip()
         indices_terminan_en_1 = op_col.str.endswith('1')
-        psttbjo_filtrado = df_original.loc[indices_terminan_en_1, col_names['psttbjo']].astype(str).str.strip()
+        psttbjo_filtrado = df_original.loc[indices_terminan_en_1, psttbjo_col_name].astype(str).str.strip() # Usamos el PstoTbjo original
 
         # Mapeos para Mano de Obra, Personas y Máquinas
         def mapear_mo_filtros(col_origen: int, col_destino: str):
@@ -515,3 +579,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+if __name__ == "__main__":
+    main()
+
