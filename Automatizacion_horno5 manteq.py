@@ -112,13 +112,13 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         COL_DIFERENCIA, COL_PESO_NETO, COL_SECUENCIA, 'ValPref', 'ValPref1', 
         'ValPref2', COL_MANO_OBRA, 'ValPref3', 'ValPref4', COL_SUMA_VALORES,  
         'ValPref5', 
-        'Campo de usuario cantidad MANUAL', 
-        COL_NRO_PERSONAS, 
-        'Campo de usuario cantidad MAQUINAS', 
-        COL_NRO_MAQUINAS, 
-        'Texto breve operación', 'Ctrl', 'VerF', 'PstoTbjo', 'Cl.', 'Gr.fam.pre', 
-        'Texto breve de material', 'Txt.brv.HRuta', 'Bloq.vers.fabric.', 'Campo usuario unidad', 
-        'Campo usuario unidad.1', 'Cantidad', 'Contador', 'InBo', 'InBo.1', 'InBo.2', 
+        'Campo de usuario cantidad MANUAL',  
+        COL_NRO_PERSONAS,  
+        'Campo de usuario cantidad MAQUINAS',  
+        COL_NRO_MAQUINAS,  
+        'Texto breve operación', 'Ctrl', 'VerF', 'PstoTbjo', 'Cl.', 'Gr.fam.pre',  
+        'Texto breve de material', 'Txt.brv.HRuta', 'Bloq.vers.fabric.', 'Campo usuario unidad',  
+        'Campo usuario unidad.1', 'Cantidad', 'Contador', 'InBo', 'InBo.1', 'InBo.2',  
         'Unnamed: 31', 'I'
     ]
 
@@ -147,6 +147,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         file_original.seek(0)
         
         # LECTURA CORREGIDA: Leemos todas las columnas (sin usecols) para evitar el error de out-of-bounds.
+        # df_mano_obra debe tener suficientes columnas para los nuevos índices A, C, D, F, G, I
         df_mano_obra = pd.read_excel(file_original, sheet_name=HOJA_MANO_OBRA, header=None)
         
         # 3.2 Lectura de archivo externo
@@ -197,22 +198,22 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         # --- 5. CÁLCULO DE MANO DE OBRA Y MÁQUINAS (CONDICIÓN OP. TERMINADA EN '1') ---
         
-        # Índices de df_mano_obra (después de leer todas las columnas):
-        # El índice de la columna en el DataFrame corresponde al índice de la columna en Excel - 1.
-        # Personas Original: Columna C -> Índice 2
-        # Máquinas PstoTbjo: Columna E -> Índice 4
-        # Máquinas Cantidad: Columna G -> Índice 6
-        # Personas PstoTbjo: Columna I -> Índice 8
-        # Personas Cantidad: Columna K -> Índice 10
-
-        COL_PSTTBJO_MO_TIEMPO = 0
-        COL_CANTIDAD_MO_TIEMPO = 2 
+        # Mapping: Columna de Excel -> Índice de DataFrame (base 0)
+        # Mano de Obra (Tiempo): PuestoTbjo (A) -> Índice 0, Cantidad (C) -> Índice 2
+        # Cant. Máquinas: PuestoTbjo (D) -> Índice 3, Cantidad (F) -> Índice 5
+        # Cant. Personas: PuestoTbjo (G) -> Índice 6, Cantidad (I) -> Índice 8
         
-        COL_PSTTBJO_MAQUINAS = 3
-        COL_CANTIDAD_MAQUINAS = 5
+        # MANTENIDO: Lógica de Tiempo de Mano de Obra
+        COL_PSTTBJO_MO_TIEMPO = 0 # Columna A
+        COL_CANTIDAD_MO_TIEMPO = 2 # Columna C
         
-        COL_PSTTBJO_PERSONAS = 6
-        COL_CANTIDAD_PERSONAS = 8
+        # NUEVOS ÍNDICES PARA MAQUINAS
+        COL_PSTTBJO_MAQUINAS = 3  # Columna D
+        COL_CANTIDAD_MAQUINAS = 5 # Columna F
+        
+        # NUEVOS ÍNDICES PARA PERSONAS
+        COL_PSTTBJO_PERSONAS = 6  # Columna G
+        COL_CANTIDAD_PERSONAS = 8 # Columna I
         
         # Limpiar y convertir tipos de datos para los mapas
         df_mano_obra[COL_PSTTBJO_MO_TIEMPO] = df_mano_obra[COL_PSTTBJO_MO_TIEMPO].astype(str).str.strip()
@@ -237,13 +238,13 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         df_original.loc[indices_terminan_en_1, COL_MANO_OBRA] = psttbjo_filtrado.map(mapa_mano_obra_tiempo)
 
 
-        # 5.2. Lógica NUEVA: Búsqueda del Número de PERSONAS (Columna I -> K)
+        # 5.2. Lógica NUEVA (corregida): Búsqueda del Número de PERSONAS (PstoTbjo G -> Cantidad I)
         mapa_personas = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_PERSONAS], keep='first').set_index(COL_PSTTBJO_PERSONAS)[COL_CANTIDAD_PERSONAS]
         df_original[COL_NRO_PERSONAS] = np.nan 
         df_original.loc[indices_terminan_en_1, COL_NRO_PERSONAS] = psttbjo_filtrado.map(mapa_personas)
 
 
-        # 5.3. Lógica NUEVA: Búsqueda del Número de MÁQUINAS (Columna E -> G)
+        # 5.3. Lógica NUEVA (corregida): Búsqueda del Número de MÁQUINAS (PstoTbjo D -> Cantidad F)
         mapa_maquinas = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MAQUINAS], keep='first').set_index(COL_PSTTBJO_MAQUINAS)[COL_CANTIDAD_MAQUINAS]
         df_original[COL_NRO_MAQUINAS] = np.nan
         df_original.loc[indices_terminan_en_1, COL_NRO_MAQUINAS] = psttbjo_filtrado.map(mapa_maquinas)
@@ -424,6 +425,7 @@ def main():
 if __name__ == "__main__":
 
     main()
+
 
 
 
