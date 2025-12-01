@@ -142,10 +142,28 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
         header_cell.fill = fill_encabezado
         header_cell.font = font_negrita
 
-def obtener_secuencia(puesto_trabajo: str, df_secuencias: pd.DataFrame) -> Union[int, float]:
-    """Busca la secuencia del puesto de trabajo en la hoja 'Secuencias'."""
+def obtener_secuencia(puesto_trabajo: str, linea: Union[str, float], df_secuencias: pd.DataFrame) -> Union[int, float]:
+    """
+    Busca la secuencia del puesto de trabajo, aplicando la regla adicional para Linea vacía: 
+    Si Linea está vacía/NaN y el PstoTbjo se encuentra en la Columna 1 de Secuencias, 
+    se fuerza la Secuencia 1.
+    """
+    # Convertir a cadena y limpiar
     psttbjo_str = str(puesto_trabajo).strip()
-
+    linea_str = str(linea).strip()
+    
+    # 1. Comprobar la regla especial (Línea vacía o NaN)
+    # Si la Línea está vacía, y la clave de búsqueda se encuentra en la Secuencia 1 (columna 0)
+    if not linea_str or linea_str.lower() in ('nan', 'none', ''):
+        # Intentamos obtener los datos de la primera columna (Secuencia 1)
+        col_data_seq1 = df_secuencias.iloc[:, 0].dropna().astype(str).str.strip()
+        
+        if psttbjo_str in set(col_data_seq1):
+             # Si el Puesto de Trabajo (no concatenado, que es psttbjo_str en este punto) 
+             # existe en la Columna 1, aplicamos la regla de forzar Secuencia 1.
+             return 1
+    
+    # 2. Búsqueda general (para casos con Línea o casos especiales sin Línea que no aplican la regla 1)
     for col_idx in range(df_secuencias.shape[1]):
         col_data = df_secuencias.iloc[:, col_idx].dropna().astype(str).str.strip()
         psttbjo_sec = set(col_data)
@@ -183,18 +201,16 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     # Definir las columnas a leer de la hoja principal
     usecols_original = list(range(len(cols_original)))
     
-    # Si es HORNO 1, aseguramos que se lea la columna T (Línea, índice 19)
-    if nombre_horno == 'HORNO 1':
-        # Si la lista de columnas es más corta que el índice 19, extendemos el rango de lectura
-        if IDX_LINEA >= len(cols_original):
-            usecols_original.append(IDX_LINEA)
+    # Si la lista de columnas es más corta que el índice 19, extendemos el rango de lectura
+    if IDX_LINEA >= len(cols_original):
+        usecols_original.append(IDX_LINEA)
         
-        # Asignamos un nombre esperado si no se pudo leer
-        if IDX_LINEA < len(cols_original):
-            col_names[COL_LINEA] = cols_original[IDX_LINEA]
-        else:
-            # Si el archivo no tiene la columna T, asignamos un nombre temporal
-            col_names[COL_LINEA] = 'Columna T (Linea)'
+    # Asignamos un nombre esperado si no se pudo leer
+    if IDX_LINEA < len(cols_original):
+        col_names[COL_LINEA] = cols_original[IDX_LINEA]
+    else:
+        # Si el archivo no tiene la columna T, asignamos un nombre temporal
+        col_names[COL_LINEA] = 'Columna T (Linea)'
     
     # Carga de DataFrames
     df_original = pd.read_excel(
@@ -206,17 +222,16 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     file_original.seek(0)
     
     # Manejo de la columna 'Linea' si el encabezado fue nulo o no se leyó
-    if nombre_horno == 'HORNO 1':
-        if COL_LINEA not in df_original.columns:
-            # Si la columna 19 se leyó pero no tenía encabezado, intentamos forzar el nombre
-            if IDX_LINEA < len(df_original.columns):
-                # Usamos el nombre temporal o el índice real
-                df_original.rename(columns={df_original.columns[IDX_LINEA]: COL_LINEA}, inplace=True)
-                col_names[COL_LINEA] = COL_LINEA
-            elif COL_LINEA not in df_original.columns:
-                 # Si no se pudo leer o no existe, la inicializamos a NaN
-                df_original[COL_LINEA] = np.nan
-                col_names[COL_LINEA] = COL_LINEA # Asegurar que la clave exista
+    if COL_LINEA not in df_original.columns:
+        # Si la columna 19 se leyó pero no tenía encabezado, intentamos forzar el nombre
+        if IDX_LINEA < len(df_original.columns):
+            # Usamos el nombre temporal o el índice real
+            df_original.rename(columns={df_original.columns[IDX_LINEA]: COL_LINEA}, inplace=True)
+            col_names[COL_LINEA] = COL_LINEA
+        elif COL_LINEA not in df_original.columns:
+             # Si no se pudo leer o no existe, la inicializamos a NaN
+             df_original[COL_LINEA] = np.nan
+             col_names[COL_LINEA] = COL_LINEA # Asegurar que la clave exista
 
     df_peso_neto = pd.read_excel(file_original, sheet_name='Peso neto')
     file_original.seek(0)
@@ -311,15 +326,18 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         df_externo[NOMBRE_COL_CLAVE_EXTERNA] = df_externo[NOMBRE_COL_CLAVE_EXTERNA].astype(str).str.strip().str.replace(r'\W+', '', regex=True)
 
-        # --- LÓGICA ESPECÍFICA DE HORNO 1 PARA SECUENCIA ---
+        # --- LÓGICA DE CONCATENACIÓN PstoTbjo + Línea para SECUENCIA ---
+        # Se aplica la concatenación si la columna Linea existe, independientemente del horno.
         columna_para_secuencia = psttbjo_col_name
         
-        if nombre_horno == 'HORNO 1':
-            st.info("⚠️ Aplicando lógica especial: La secuencia del HORNO 1 se calcula con PstoTbjo y Línea.")
+        # Verificar si la columna Linea (COL_LINEA) se leyó correctamente y tiene datos
+        linea_existe_y_es_relevante = COL_LINEA in df_original.columns and df_original[COL_LINEA].astype(str).str.strip().str.lower().str.contains(r'[a-z0-9]').any()
+        
+        if linea_existe_y_es_relevante:
+            st.info(f"⚠️ Aplicando lógica especial: La búsqueda de secuencia se hará con **PstoTbjo + Línea** para {nombre_horno}.")
             
             # Obtener y limpiar la columna de línea
-            # Usamos .get() con Series vacía como fallback si por alguna razón COL_LINEA no está
-            linea_data = df_original.get(COL_LINEA, pd.Series([''] * len(df_original)))
+            linea_data = df_original[COL_LINEA]
             
             # Reemplazar NaN o valores vacíos/solo espacios con una marca de NaN para la lógica
             linea_limpia = linea_data.astype(str).str.strip()
@@ -334,7 +352,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
                 psttbjo_limpio + linea_limpia
             )
             columna_para_secuencia = COL_PSTTBJO_CONCATENADO
-        # ---------------------------------------------------
+        # ------------------------------------------------------------------
 
         # 3. Mapeo de Cantidad Calculada, Rechazo y Peso Neto
         def mapear_columna(df_mapeo: pd.DataFrame, col_indice: str, col_destino: str, col_clave: str, nombre_col_mapa: str):
@@ -347,8 +365,18 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         mapear_columna(df_peso_neto, material_col_name, COL_PESO_NETO, col_names['material_pn'], col_names['peso_neto_valor'])
 
         # 4. Cálculo de Secuencia
-        # Usamos la columna condicionalmente seleccionada
-        df_original[COL_SECUENCIA] = df_original[columna_para_secuencia].apply(lambda x: obtener_secuencia(x, df_secuencias))
+        # Preparamos la columna de Línea original para la función obtener_secuencia
+        columna_linea_data = df_original.get(COL_LINEA, pd.Series([np.nan] * len(df_original)))
+        
+        # Aplicamos la nueva función con la regla condicional: (PstoTbjo o PstoTbjo_Concat) y Linea
+        df_original[COL_SECUENCIA] = df_original.apply(
+            lambda row: obtener_secuencia(
+                row[columna_para_secuencia], 
+                row[COL_LINEA] if COL_LINEA in row else np.nan, 
+                df_secuencias
+            ),
+            axis=1
+        )
 
         # 5. Cálculo de Mano de Obra, Personas y Máquinas
         # Índices de df_mano_obra (A=0, C=2, D=3, E=4)
@@ -422,7 +450,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
 
         # 8. Reconstrucción Final y Guardado con Formato
-        # Si se creó la columna de concatenación para HORNO 1, la eliminamos para el output final
+        # Si se creó la columna de concatenación, la eliminamos para el output final
         if COL_PSTTBJO_CONCATENADO in df_original.columns:
              df_original = df_original.drop(columns=[COL_PSTTBJO_CONCATENADO])
              
