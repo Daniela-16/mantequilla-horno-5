@@ -32,9 +32,9 @@ COL_DIFERENCIA = 'diferencia'
 NOMBRE_COL_CANTIDAD_BASE = 'Cantidad base'
 NOMBRE_COL_CLAVE_EXTERNA = 'MaterialHorno'
 NOMBRE_COL_CANT_EXTERNA = 'CantidadBaseXHora'
-# NUEVA CONSTANTE PARA EL CAMPO LINEA (Columna T)
+# COLUMNA CLAVE PARA LA NUEVA LÓGICA
 COL_LINEA = 'Linea'
-COL_PSTTBJO_CONCATENADO = 'PstoTbjo_Concat'
+COL_PSTTBJO_CONCATENADO = 'PstoTbjo_Concat' # Nombre temporal para la columna concatenada
 
 # Nombres de hojas a crear (Comunes)
 HOJA_SECUENCIAS = 'Secuencias' # Esta hoja es común
@@ -90,9 +90,9 @@ HORNOS_CONFIG = {
 # Índices para el archivo original (ASUMO QUE SON COMUNES)
 IDX_MATERIAL = 2 # Columna C
 IDX_GRPLF = 4 # Columna E
+IDX_CANTIDAD_BASE_LEIDA = 6 # Columna G
 IDX_PSTTBJO = 18 # Columna S (Puesto de Trabajo)
-IDX_LINEA = 19 # Columna T (Nueva)
-IDX_CANTIDAD_BASE = 6
+# IDX_LINEA (Columna T) ya NO se usará para la carga, solo se usa para referenciar el nombre 'Linea'
 IDX_MATERIAL_PN = 0
 IDX_RECHAZO_EXTERNA = 28
 
@@ -143,7 +143,7 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
         header_cell.font = font_negrita
 
 def obtener_secuencia(puesto_trabajo: str, df_secuencias: pd.DataFrame) -> Union[int, float]:
-    """Busca la secuencia del puesto de trabajo en la hoja 'Secuencias'."""
+    """Busca la secuencia del puesto de trabajo (o PstoTbjo_Concat) en la hoja 'Secuencias'."""
     psttbjo_str = str(puesto_trabajo).strip()
 
     for col_idx in range(df_secuencias.shape[1]):
@@ -162,69 +162,56 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     hoja_principal = config['HOJA_PRINCIPAL']
 
     # --- 1. Lectura de Archivo Original ---
-    # Leer encabezados de la hoja principal (para obtener nombres de columnas por índice)
+    # Leer encabezados de la hoja principal
     cols_original = pd.read_excel(file_original, sheet_name=hoja_principal, nrows=0).columns.tolist()
     file_original.seek(0)
     
-    # Leer encabezados de Peso neto (para obtener nombres de columnas por índice)
+    # Leer encabezados de Peso neto
     cols_pn = pd.read_excel(file_original, sheet_name='Peso neto', nrows=0).columns.tolist()
     file_original.seek(0)
     
     col_names = {
-        'cant_base_leida': cols_original[IDX_CANTIDAD_BASE],
-        'material': cols_original[IDX_MATERIAL],
-        'psttbjo': cols_original[IDX_PSTTBJO],
-        'material_pn': cols_pn[IDX_MATERIAL_PN],
-        'peso_neto_valor': cols_pn[2],
-        'cols_original': cols_original, # Añadido aquí para mejor manejo
-        'hoja_principal': hoja_principal # Añadido aquí para mejor manejo
+        'cant_base_leida': cols_original[IDX_CANTIDAD_BASE_LEIDA] if IDX_CANTIDAD_BASE_LEIDA < len(cols_original) else NOMBRE_COL_CANTIDAD_BASE,
+        'material': cols_original[IDX_MATERIAL] if IDX_MATERIAL < len(cols_original) else 'Material',
+        'psttbjo': cols_original[IDX_PSTTBJO] if IDX_PSTTBJO < len(cols_original) else 'PstoTbjo',
+        'material_pn': cols_pn[IDX_MATERIAL_PN] if IDX_MATERIAL_PN < len(cols_pn) else 'Material',
+        'peso_neto_valor': cols_pn[2] if 2 < len(cols_pn) else 'Peso neto',
+        'cols_original': cols_original,
+        'hoja_principal': hoja_principal
     }
 
-    # Definir las columnas a leer de la hoja principal
-    usecols_original = list(range(len(cols_original)))
-    
-    # Si la lista de columnas es más corta que el índice 19, extendemos el rango de lectura
-    if IDX_LINEA >= len(cols_original):
-        usecols_original.append(IDX_LINEA)
-        
-    # Asignamos un nombre esperado si no se pudo leer
-    if IDX_LINEA < len(cols_original):
-        col_names[COL_LINEA] = cols_original[IDX_LINEA]
-    else:
-        # Si el archivo no tiene la columna T, asignamos un nombre temporal
-        col_names[COL_LINEA] = 'Columna T (Linea)'
-    
-    # Carga de DataFrames
+    # Definir las columnas a leer de la hoja principal: Leer TODAS las columnas para no depender del índice 19 (Linea)
     df_original = pd.read_excel(
         file_original, 
         sheet_name=hoja_principal, 
         dtype={col_names['cant_base_leida']: str},
-        usecols=usecols_original 
+        # usecols=None lee todas las columnas automáticamente
     )
     file_original.seek(0)
     
-    # Manejo de la columna 'Linea' si el encabezado fue nulo o no se leyó
-    if COL_LINEA not in df_original.columns:
-        # Si la columna 19 se leyó pero no tenía encabezado, intentamos forzar el nombre
-        if IDX_LINEA < len(df_original.columns):
-            # Usamos el nombre temporal o el índice real
-            df_original.rename(columns={df_original.columns[IDX_LINEA]: COL_LINEA}, inplace=True)
-            col_names[COL_LINEA] = COL_LINEA
-        elif COL_LINEA not in df_original.columns:
-             # Si no se pudo leer o no existe, la inicializamos a NaN
-             df_original[COL_LINEA] = np.nan
-             col_names[COL_LINEA] = COL_LINEA # Asegurar que la clave exista
+    # Renombrar la columna de cantidad base si es necesario
+    if col_names['cant_base_leida'] != NOMBRE_COL_CANTIDAD_BASE:
+        df_original = df_original.rename(columns={col_names['cant_base_leida']: NOMBRE_COL_CANTIDAD_BASE})
+        col_names['cant_base_leida'] = NOMBRE_COL_CANTIDAD_BASE
+        
+    # Renombrar otras columnas clave si el nombre de la variable no coincide con el nombre de la columna
+    # Esto es vital porque el código asume que el nombre de la columna es igual a la constante:
+    if col_names['material'] != 'Material':
+        df_original.rename(columns={col_names['material']: 'Material'}, inplace=True)
+        col_names['material'] = 'Material'
+        
+    if col_names['psttbjo'] != 'PstoTbjo':
+        df_original.rename(columns={col_names['psttbjo']: 'PstoTbjo'}, inplace=True)
+        col_names['psttbjo'] = 'PstoTbjo'
 
+    # Cargar DataFrames adicionales
     df_peso_neto = pd.read_excel(file_original, sheet_name='Peso neto')
     file_original.seek(0)
 
     df_secuencias = pd.read_excel(file_original, sheet_name=HOJA_SECUENCIAS)
     file_original.seek(0)
     
-    # ******* CORRECCIÓN PARA LA HOJA MANO DE OBRA *******
-    # Lectura forzada de 5 columnas para la hoja Mano de obra
     columnas_mano_obra = [0, 1, 2, 3, 4] 
-    
     df_mano_obra = pd.read_excel(
         file_original, 
         sheet_name=HOJA_MANO_OBRA, 
@@ -233,7 +220,6 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
         names=columnas_mano_obra 
     )
     file_original.seek(0)
-    # ******* FIN DE CORRECCIÓN *******
 
     # --- 2. Lectura de Archivo Externo ---
     cols_externo = pd.read_excel(file_info_externa, sheet_name='Especif y Rutas', nrows=0).columns.tolist()
@@ -243,10 +229,6 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     cols_a_leer_externo = [NOMBRE_COL_CLAVE_EXTERNA, NOMBRE_COL_CANT_EXTERNA, nombre_col_rechazo_externa]
     df_externo = pd.read_excel(file_info_externa, sheet_name='Especif y Rutas', header=0, usecols=cols_a_leer_externo)
     file_info_externa.seek(0)
-
-    # Renombrar columna de cantidad base si es necesario
-    if col_names['cant_base_leida'] != NOMBRE_COL_CANTIDAD_BASE:
-        df_original = df_original.rename(columns={col_names['cant_base_leida']: NOMBRE_COL_CANTIDAD_BASE})
 
     # Guardar nombres de columnas externas leídas
     col_names['nombre_col_rechazo_externa'] = nombre_col_rechazo_externa
@@ -287,6 +269,11 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         # 1. Carga y limpieza de datos (Se pasa el nombre del horno)
         df_original, df_externo, df_peso_neto, df_secuencias, df_mano_obra, col_names = cargar_y_limpiar_datos(file_original, file_info_externa, nombre_horno)
+        
+        # Asegurar nombres de columnas clave que ya fueron renombradas o detectadas en cargar_y_limpiar_datos
+        material_col_name = 'Material'
+        grplf_col_name = col_names['cols_original'][IDX_GRPLF]
+        psttbjo_col_name = 'PstoTbjo' # Ya renombrado/detectado como 'PstoTbjo'
 
         # 2. Creación de la Clave de Búsqueda
         def limpiar_col(df: pd.DataFrame, col_name: str) -> pd.Series:
@@ -294,11 +281,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             if col_name not in df.columns:
                 raise KeyError(f"Columna '{col_name}' no encontrada en la hoja '{col_names['hoja_principal']}'.")
             return df[col_name].astype(str).str.strip().str.replace(r'\W+', '', regex=True)
-
-        # Usamos los nombres de columna reales de df_original
-        material_col_name = col_names['material']
-        grplf_col_name = col_names['cols_original'][IDX_GRPLF]
-        psttbjo_col_name = col_names['psttbjo']
 
         df_original[COL_CLAVE] = (
             limpiar_col(df_original, material_col_name) +
@@ -308,27 +290,42 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         df_externo[NOMBRE_COL_CLAVE_EXTERNA] = df_externo[NOMBRE_COL_CLAVE_EXTERNA].astype(str).str.strip().str.replace(r'\W+', '', regex=True)
 
-        # --- LÓGICA DE CONCATENACIÓN PstoTbjo + Línea para SECUENCIA ---
-        columna_para_secuencia = psttbjo_col_name
-        linea_existe_y_es_relevante = COL_LINEA in df_original.columns and df_original[COL_LINEA].astype(str).str.strip().str.lower().str.contains(r'[a-z0-9]').any()
+        # --- LÓGICA DE CONCATENACIÓN Y DETERMINACIÓN DE COLUMNA DE BÚSQUEDA ---
         
-        if linea_existe_y_es_relevante:
-            st.info(f"⚠️ Aplicando lógica de concatenación **PstoTbjo + Línea** para búsqueda de secuencia en {nombre_horno}.")
-            
+        # Por defecto, la columna de búsqueda es el Puesto de Trabajo original
+        columna_para_secuencia = psttbjo_col_name 
+        
+        # 1. Verificar si la columna 'Linea' existe por nombre
+        linea_existe = COL_LINEA in df_original.columns 
+
+        if linea_existe:
             linea_data = df_original[COL_LINEA]
             linea_limpia = linea_data.astype(str).str.strip()
-            linea_limpia[linea_limpia == ''] = np.nan
+            
+            # Verificar si la columna 'Linea' contiene al menos un valor relevante (no vacío/nan)
+            linea_existe_y_es_relevante = linea_limpia.str.lower().str.contains(r'[a-z0-9]').any()
+        else:
+            linea_existe_y_es_relevante = False
+        
+        
+        if linea_existe_y_es_relevante:
+            st.info(f"⚠️ **Detectada la columna '{COL_LINEA}'**. Aplicando lógica de concatenación **PstoTbjo + Línea** para búsqueda de secuencia en {nombre_horno}.")
             
             psttbjo_limpio = df_original[psttbjo_col_name].astype(str).str.strip()
             
             # Crear la columna concatenada: PstoTbjo + Línea si Línea tiene valor, sino solo PstoTbjo
             df_original[COL_PSTTBJO_CONCATENADO] = np.where(
-                pd.isna(linea_limpia),
+                # La condición usa una serie de booleanos para detectar celdas vacías/nulas
+                linea_limpia.str.lower().isin(['nan', 'none', '']), 
                 psttbjo_limpio,
                 psttbjo_limpio + linea_limpia
             )
             columna_para_secuencia = COL_PSTTBJO_CONCATENADO
+        else:
+            st.info("✅ **Columna 'Linea' no detectada o vacía**. Usando solo el Puesto de Trabajo para la búsqueda de secuencia.")
+            # columna_para_secuencia ya es psttbjo_col_name
         # ------------------------------------------------------------------
+
 
         # 3. Mapeo de Cantidad Calculada, Rechazo y Peso Neto
         def mapear_columna(df_mapeo: pd.DataFrame, col_indice: str, col_destino: str, col_clave: str, nombre_col_mapa: str):
@@ -340,25 +337,10 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         mapear_columna(df_externo, COL_CLAVE, COL_PORCENTAJE_RECHAZO, NOMBRE_COL_CLAVE_EXTERNA, col_names['nombre_col_rechazo_externa'])
         mapear_columna(df_peso_neto, material_col_name, COL_PESO_NETO, col_names['material_pn'], col_names['peso_neto_valor'])
 
-        # 4. Cálculo de Secuencia y Aplicación de Regla Simple
-        
-        # 4.1 Identificar cuáles filas tienen Línea vacía/NaN
-        columna_linea_data = df_original.get(COL_LINEA, pd.Series([np.nan] * len(df_original)))
-        # La condición isin se usa para capturar NaN, None, o cadenas vacías que se convierten a 'nan' o ''
-        linea_es_nan = columna_linea_data.astype(str).str.strip().str.lower().isin(['nan', 'none', ''])
+        # 4. Cálculo de Secuencia (Usando la columna determinada)
+        st.info(f"🔄 Buscando secuencia para todas las filas usando la columna '{columna_para_secuencia}'.")
 
-        # Inicializar la columna de secuencia
-        df_original[COL_SECUENCIA] = np.nan
-
-        # 4.2 Aplicar la regla simple: Si Linea está vacía, la secuencia es 1.
-        st.info("🔄 Aplicando regla simple de secuencia: Si 'Linea' está vacía, la secuencia es **1**.")
-        df_original.loc[linea_es_nan, COL_SECUENCIA] = 1
-
-        # 4.3 Aplicar la lógica de búsqueda normal (usando concatenación si aplica) solo a las filas *restantes* (donde Linea NO está vacía)
-        indices_restantes = df_original[COL_SECUENCIA].isna()
-        columna_busqueda_secuencia = df_original[columna_para_secuencia] # Será PstoTbjo o PstoTbjo_Concat
-
-        df_original.loc[indices_restantes, COL_SECUENCIA] = columna_busqueda_secuencia.loc[indices_restantes].apply(
+        df_original[COL_SECUENCIA] = df_original[columna_para_secuencia].astype(str).str.strip().apply(
             lambda x: obtener_secuencia(x, df_secuencias)
         )
 
@@ -372,7 +354,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         # Limpieza de datos en df_mano_obra
         df_mano_obra[COL_PSTTBJO_MO] = df_mano_obra[COL_PSTTBJO_MO].astype(str).str.strip()
         for col_idx in [COL_TIEMPO_MO, COL_CANTIDAD_MAQUINAS_MO, COL_CANTIDAD_PERSONAS_MO]:
-            # Convertimos a numérico
             df_mano_obra[col_idx] = pd.to_numeric(df_mano_obra[col_idx], errors='coerce') 
 
         # Filtro: Solo operaciones que terminan en '1'
@@ -426,18 +407,19 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         cols_agrupamiento = [COL_PESO_NETO, COL_SECUENCIA]
         for col in cols_agrupamiento:
             if col not in df_original.columns:
+                 # Esto solo debería ocurrir si COL_PESO_NETO falló en el mapeo
                  raise KeyError(f"Columna de agrupamiento '{col}' falta en el DataFrame. Se necesita para calcular atípicos.")
 
         df_original[COL_ATIPICO] = df_original.groupby(cols_agrupamiento, dropna=True).apply(
             detectar_y_marcar_cantidad_atipica
-        ).reset_index(level=[0, 1], drop=True).fillna(False)
+        ).reset_index(level=list(range(len(cols_agrupamiento))), drop=True).fillna(False)
 
 
         # 8. Reconstrucción Final y Guardado con Formato
         # Si se creó la columna de concatenación, la eliminamos para el output final
         if COL_PSTTBJO_CONCATENADO in df_original.columns:
              df_original = df_original.drop(columns=[COL_PSTTBJO_CONCATENADO])
-             
+            
         df_original_final = df_original.reindex(columns=[c for c in FINAL_COL_ORDER if c in df_original.columns])
 
         # Cargar el libro de trabajo desde el buffer (Para mantener las hojas originales)
@@ -526,7 +508,7 @@ def main():
         hornos_disponibles,
         index=hornos_disponibles.index('HORNO 5') if 'HORNO 5' in hornos_disponibles else 0,
         horizontal=True,
-        key="horno_selector" # <<<< CLAVE AÑADIDA PARA EVITAR StreamlitDuplicateElementId >>>>
+        key="horno_selector" 
     )
     st.markdown("---")
     
