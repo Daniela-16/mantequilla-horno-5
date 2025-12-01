@@ -142,28 +142,10 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
         header_cell.fill = fill_encabezado
         header_cell.font = font_negrita
 
-def obtener_secuencia(puesto_trabajo: str, linea: Union[str, float], df_secuencias: pd.DataFrame) -> Union[int, float]:
-    """
-    Busca la secuencia del puesto de trabajo, aplicando la regla adicional para Linea vacía: 
-    Si Linea está vacía/NaN y el PstoTbjo se encuentra en la Columna 1 de Secuencias, 
-    se fuerza la Secuencia 1.
-    """
-    # Convertir a cadena y limpiar
+def obtener_secuencia(puesto_trabajo: str, df_secuencias: pd.DataFrame) -> Union[int, float]:
+    """Busca la secuencia del puesto de trabajo en la hoja 'Secuencias'."""
     psttbjo_str = str(puesto_trabajo).strip()
-    linea_str = str(linea).strip()
-    
-    # 1. Comprobar la regla especial (Línea vacía o NaN)
-    # Si la Línea está vacía, y la clave de búsqueda se encuentra en la Secuencia 1 (columna 0)
-    if not linea_str or linea_str.lower() in ('nan', 'none', ''):
-        # Intentamos obtener los datos de la primera columna (Secuencia 1)
-        col_data_seq1 = df_secuencias.iloc[:, 0].dropna().astype(str).str.strip()
-        
-        if psttbjo_str in set(col_data_seq1):
-             # Si el Puesto de Trabajo (no concatenado, que es psttbjo_str en este punto) 
-             # existe en la Columna 1, aplicamos la regla de forzar Secuencia 1.
-             return 1
-    
-    # 2. Búsqueda general (para casos con Línea o casos especiales sin Línea que no aplican la regla 1)
+
     for col_idx in range(df_secuencias.shape[1]):
         col_data = df_secuencias.iloc[:, col_idx].dropna().astype(str).str.strip()
         psttbjo_sec = set(col_data)
@@ -327,19 +309,13 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         df_externo[NOMBRE_COL_CLAVE_EXTERNA] = df_externo[NOMBRE_COL_CLAVE_EXTERNA].astype(str).str.strip().str.replace(r'\W+', '', regex=True)
 
         # --- LÓGICA DE CONCATENACIÓN PstoTbjo + Línea para SECUENCIA ---
-        # Se aplica la concatenación si la columna Linea existe, independientemente del horno.
         columna_para_secuencia = psttbjo_col_name
-        
-        # Verificar si la columna Linea (COL_LINEA) se leyó correctamente y tiene datos
         linea_existe_y_es_relevante = COL_LINEA in df_original.columns and df_original[COL_LINEA].astype(str).str.strip().str.lower().str.contains(r'[a-z0-9]').any()
         
         if linea_existe_y_es_relevante:
-            st.info(f"⚠️ Aplicando lógica especial: La búsqueda de secuencia se hará con **PstoTbjo + Línea** para {nombre_horno}.")
+            st.info(f"⚠️ Aplicando lógica de concatenación **PstoTbjo + Línea** para búsqueda de secuencia en {nombre_horno}.")
             
-            # Obtener y limpiar la columna de línea
             linea_data = df_original[COL_LINEA]
-            
-            # Reemplazar NaN o valores vacíos/solo espacios con una marca de NaN para la lógica
             linea_limpia = linea_data.astype(str).str.strip()
             linea_limpia[linea_limpia == ''] = np.nan
             
@@ -364,18 +340,26 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         mapear_columna(df_externo, COL_CLAVE, COL_PORCENTAJE_RECHAZO, NOMBRE_COL_CLAVE_EXTERNA, col_names['nombre_col_rechazo_externa'])
         mapear_columna(df_peso_neto, material_col_name, COL_PESO_NETO, col_names['material_pn'], col_names['peso_neto_valor'])
 
-        # 4. Cálculo de Secuencia
-        # Preparamos la columna de Línea original para la función obtener_secuencia
-        columna_linea_data = df_original.get(COL_LINEA, pd.Series([np.nan] * len(df_original)))
+        # 4. Cálculo de Secuencia y Aplicación de Regla Simple
         
-        # Aplicamos la nueva función con la regla condicional: (PstoTbjo o PstoTbjo_Concat) y Linea
-        df_original[COL_SECUENCIA] = df_original.apply(
-            lambda row: obtener_secuencia(
-                row[columna_para_secuencia], 
-                row[COL_LINEA] if COL_LINEA in row else np.nan, 
-                df_secuencias
-            ),
-            axis=1
+        # 4.1 Identificar cuáles filas tienen Línea vacía/NaN
+        columna_linea_data = df_original.get(COL_LINEA, pd.Series([np.nan] * len(df_original)))
+        # La condición isin se usa para capturar NaN, None, o cadenas vacías que se convierten a 'nan' o ''
+        linea_es_nan = columna_linea_data.astype(str).str.strip().str.lower().isin(['nan', 'none', ''])
+
+        # Inicializar la columna de secuencia
+        df_original[COL_SECUENCIA] = np.nan
+
+        # 4.2 Aplicar la regla simple: Si Linea está vacía, la secuencia es 1.
+        st.info("🔄 Aplicando regla simple de secuencia: Si 'Linea' está vacía, la secuencia es **1**.")
+        df_original.loc[linea_es_nan, COL_SECUENCIA] = 1
+
+        # 4.3 Aplicar la lógica de búsqueda normal (usando concatenación si aplica) solo a las filas *restantes* (donde Linea NO está vacía)
+        indices_restantes = df_original[COL_SECUENCIA].isna()
+        columna_busqueda_secuencia = df_original[columna_para_secuencia] # Será PstoTbjo o PstoTbjo_Concat
+
+        df_original.loc[indices_restantes, COL_SECUENCIA] = columna_busqueda_secuencia.loc[indices_restantes].apply(
+            lambda x: obtener_secuencia(x, df_secuencias)
         )
 
         # 5. Cálculo de Mano de Obra, Personas y Máquinas
