@@ -1,14 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Creado el Lunes 24 de Noviembre de 2025
-
-@author: NCGNpracpim
-
-MODIFICACIONES SOLICITADAS:
-1. Cantidad Base (Hoja de origen): Usar el valor sin decimales.
-2. Cantidad Base Calculada (Archivo externo): Buscar la cantidad MAYOR para una clave.
-3. Colocar la fórmula de Excel en la columna 'diferencia'.
-4. NUEVO: En la hoja 'campos de usuario', filtrar por 'Op.' impar >= 31.
+... (Encabezado y constantes omitidas por brevedad)
 """
 
 import pandas as pd
@@ -38,7 +30,6 @@ COL_DIFERENCIA = 'diferencia'
 NOMBRE_COL_CANTIDAD_BASE = 'Cantidad base'
 NOMBRE_COL_CLAVE_EXTERNA = 'MaterialHorno'
 NOMBRE_COL_CANT_EXTERNA = 'CantidadBaseXHora'
-# COLUMNA CLAVE PARA LA NUEVA LÓGICA
 COL_LINEA = 'Linea'
 COL_PSTTBJO_CONCATENADO = 'PstoTbjo_Concat' # Nombre temporal para la columna concatenada
 
@@ -65,7 +56,7 @@ COLUMNAS_LSMW = [
 ]
 COLUMNAS_CAMPOS_USUARIO = [
     'GrpHRuta', 'CGH', 'Material', 'Ce.', COL_OP,
-    'Indicador', 'clase de control',
+    'Indicador', 'clase de control', # Estas columnas serán llenadas con valores fijos
     COL_NRO_PERSONAS, COL_NRO_MAQUINAS
 ]
 COLUMNAS_RECHAZO = [
@@ -102,7 +93,8 @@ IDX_PSTTBJO = 18 # Columna S (Puesto de Trabajo)
 IDX_MATERIAL_PN = 0
 IDX_RECHAZO_EXTERNA = 28
 
-# --- FUNCIONES DE LÓGICA ---
+
+# --- FUNCIONES DE LÓGICA (Mantenidas) ---
 
 def detectar_y_marcar_cantidad_atipica(grupo: pd.DataFrame) -> pd.Series:
     """Identifica valores atípicos (diferentes de la moda) en Cant. base calculada dentro de un grupo."""
@@ -123,12 +115,11 @@ def filtrar_operaciones_impares_desde_31(df: pd.DataFrame) -> pd.DataFrame:
     """
     if COL_OP not in df.columns:
         st.warning("Columna 'Op.' no encontrada para aplicar filtro en 'campos de usuario'.")
-        return pd.DataFrame() # Devuelve un DataFrame vacío si no hay columna clave
+        return pd.DataFrame() 
 
     df_temp = df.copy() 
     
     # 1. Intentar convertir la columna 'Op.' a numérico
-    # Limpia el string y lo convierte, 'coerce' convierte fallos (como texto) a NaN
     df_temp['Op_Num'] = pd.to_numeric(df_temp[COL_OP].astype(str).str.strip(), errors='coerce')
     
     # 2. Definir la condición: No es NaN AND es >= 31 AND es impar (módulo 2 es 1)
@@ -154,6 +145,7 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
     if nombre_hoja == HOJA_CAMPOS_USUARIO:
         df_a_guardar = filtrar_operaciones_impares_desde_31(df_base)
         st.info(f"✨ **Aplicado filtro de '{COL_OP}' impar (>= 31)** a la hoja '{nombre_hoja}'. Filas restantes: {len(df_a_guardar)}")
+        st.info(f"✍️ Llenando columnas 'Indicador' con 'x' y 'clase de control' con 'ZPP0006'.")
     else:
         # Para todas las demás hojas, usamos la base completa (una copia para seguridad)
         df_a_guardar = df_base.copy()
@@ -167,13 +159,18 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
     df_nuevo = pd.DataFrame()
     for col in columnas_destino:
         # Aseguramos que la columna exista en el DataFrame filtrado/base
-        df_nuevo[col] = df_a_guardar[col] if col in df_a_guardar.columns else np.nan
+        if col in df_a_guardar.columns:
+             df_nuevo[col] = df_a_guardar[col]
+        elif col == 'Indicador' and nombre_hoja == HOJA_CAMPOS_USUARIO:
+             df_nuevo[col] = 'x'
+        elif col == 'clase de control' and nombre_hoja == HOJA_CAMPOS_USUARIO:
+             df_nuevo[col] = 'ZPP0006'
+        else:
+            df_nuevo[col] = np.nan
         
     # Manejar el caso de DataFrame vacío (si el filtro no encuentra nada)
     if df_nuevo.empty and not df_a_guardar.empty:
-         # Si df_nuevo está vacío pero df_a_guardar no, significa que las columnas_destino no se encontraron.
          st.error(f"Fallo al crear el DataFrame para la hoja '{nombre_hoja}'. Verifique los nombres de las columnas: {columnas_destino}")
-         # Crear una fila de encabezado vacía para que la hoja exista
          df_nuevo = pd.DataFrame(columns=columnas_destino)
 
     # 2. Escribir el nuevo DataFrame en la hoja
@@ -505,6 +502,13 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
 
         # 8. Reconstrucción Final y Guardado con Formato
+        
+        # --- APLICACIÓN DE VALORES FIJOS PARA CAMPOS DE USUARIO ---
+        df_original['Indicador'] = 'x'
+        df_original['clase de control'] = 'ZPP0006'
+        st.success("🎉 Columnas 'Indicador' ('x') y 'clase de control' ('ZPP0006') añadidas al DataFrame base.")
+        # La función crear_y_guardar_hoja se encargará de usar estos valores en la hoja filtrada
+        
         # Si se creó la columna de concatenación, la eliminamos para el output final
         if COL_PSTTBJO_CONCATENADO in df_original.columns:
              df_original = df_original.drop(columns=[COL_PSTTBJO_CONCATENADO])
@@ -581,6 +585,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
                 cell_to_color.fill = fill_anomalia
 
         # --- CREACIÓN DE HOJAS ADICIONALES (El filtro se aplica dentro de crear_y_guardar_hoja) ---
+        # Se llama a crear_y_guardar_hoja, que ahora sabe qué hacer con Indicador/clase de control
         crear_y_guardar_hoja(wb, df_original, HOJA_LSMW, COLUMNAS_LSMW, fill_encabezado, font_negrita)
         crear_y_guardar_hoja(wb, df_original, HOJA_CAMPOS_USUARIO, COLUMNAS_CAMPOS_USUARIO, fill_encabezado, font_negrita)
         crear_y_guardar_hoja(wb, df_original, HOJA_PORCENTAJE_RECHAZO, COLUMNAS_RECHAZO, fill_encabezado, font_negrita)
