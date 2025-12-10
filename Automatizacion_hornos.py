@@ -56,7 +56,7 @@ COLUMNAS_A_RESALTAR = [
 
 # Definición de columnas de salida (Comunes)
 COLUMNAS_LSMW = [
-    'PstoTbjo', 'GrpHRuta', 'CGH', 'Material', 'Ce.', 'Op.',
+    'PstoTbjo', 'GrpHRuta', 'CGH', 'Material', COL_CLAVE, 'Ce.', 'Op.',
     COL_CANT_CALCULADA, 'ValPref', 'ValPref1', COL_MANO_OBRA, 'ValPref3',
     COL_SUMA_VALORES, 'ValPref5'
 ]
@@ -639,5 +639,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
