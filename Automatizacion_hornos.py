@@ -64,7 +64,7 @@ COLUMNAS_LSMW = [
     COL_SUMA_VALORES, 'ValPref5'
 ]
 COLUMNAS_CAMPOS_USUARIO = [
-    'GrpHRuta', 'CGH', 'Material', 'Ce.', COL_OP,
+    'GrpHRuta','PstoTbjo', 'CGH', 'Material', 'Ce.', COL_OP,
     'Indicador', 'clase de control',
     COL_NRO_PERSONAS, COL_NRO_MAQUINAS
 ]
@@ -708,6 +708,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
