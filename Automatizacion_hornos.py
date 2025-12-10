@@ -5,10 +5,10 @@ Creado el Lunes 24 de Noviembre de 2025
 @author: NCGNpracpim
 
 MODIFICACIONES IMPLEMENTADAS:
-1. Cantidad Base (Hoja de origen): Usar el valor sin decimales (Truncado).
-2. COL_SECUENCIA, Mano de Obra (Incluye Personas/Máquinas) y la detección de Atípicos se mantienen con lógica de Python (valores fijos).
-3. Se insertan FÓRMULAS DE EXCEL (BUSCARV, SI, Suma, Resta) en el resto de columnas de cálculo.
-4. Se aplica formato de número Excel a las celdas con fórmula y a los valores fijos de Python.
+1. COL_SECUENCIA, Mano de Obra (Personas/Máquinas) se calculan en Python (valores fijos).
+2. Fórmulas de Excel (BUSCARV, Suma, Resta) se usan para Cant. Calculada, Diferencia, Peso Neto y Rechazo.
+3. CORRECCIÓN DE ERROR (Log de Recuperación): Las fórmulas SOLO se escriben en la Hoja Principal de Salida.
+   En las hojas de reporte (LSMW, Campos, Rechazo), se escriben los VALORES, no las fórmulas, para evitar errores de sintaxis en el archivo final.
 """
 
 import pandas as pd
@@ -38,16 +38,15 @@ COL_DIFERENCIA = 'diferencia'
 NOMBRE_COL_CANTIDAD_BASE = 'Cantidad base'
 NOMBRE_COL_CLAVE_EXTERNA = 'MaterialHorno'
 NOMBRE_COL_CANT_EXTERNA = 'CantidadBaseXHora'
-# COLUMNA CLAVE PARA LA NUEVA LÓGICA
 COL_LINEA = 'Linea'
-COL_PSTTBJO_CONCATENADO = 'PstoTbjo_Concat' # Nombre temporal para la columna concatenada
+COL_PSTTBJO_CONCATENADO = 'PstoTbjo_Concat' 
 
 # Nombres de hojas a crear (Comunes)
-HOJA_SECUENCIAS = 'Secuencias' # Esta hoja es común
+HOJA_SECUENCIAS = 'Secuencias' 
 HOJA_LSMW = 'lsmw'
 HOJA_CAMPOS_USUARIO = 'campos de usuario'
 HOJA_PORCENTAJE_RECHAZO = '% de rechazo'
-HOJA_EXTERNA = 'Especif y Rutas' # Nombre de la hoja externa
+HOJA_EXTERNA = 'Especif y Rutas' 
 
 # Columnas a resaltar en todas las hojas (solicitado por el usuario)
 COLUMNAS_A_RESALTAR = [
@@ -94,49 +93,42 @@ HORNOS_CONFIG = {
     },
 }
 
-# Índices para el archivo original (ASUMO QUE SON COMUNES)
-IDX_MATERIAL = 2 # Columna C
-IDX_GRPLF = 4 # Columna E
-IDX_CANTIDAD_BASE_LEIDA = 6 # Columna G
-IDX_PSTTBJO = 18 # Columna S (Puesto de Trabajo)
+# Índices para el archivo original
+IDX_MATERIAL = 2 
+IDX_GRPLF = 4 
+IDX_CANTIDAD_BASE_LEIDA = 6 
+IDX_PSTTBJO = 18 
 IDX_MATERIAL_PN = 0
-IDX_RECHAZO_EXTERNA = 28 # Columna AC (29 en base 1)
+IDX_RECHAZO_EXTERNA = 28 
 
 # --- CONSTANTES DE REFERENCIA EXCEL EN LA HOJA DE SALIDA ---
-# (Basado en FINAL_COL_ORDER, asumiendo que GrpHRuta es A)
-COL_GRPHRUTA_OUTPUT_EXCEL = 'A'
 COL_MATERIAL_OUTPUT_EXCEL = 'C'
 COL_CLAVE_OUTPUT_EXCEL = 'D'
-COL_PSTTBJO_OUTPUT_EXCEL = 'AB' 
 COL_OP_OUTPUT_EXCEL = 'G'
-COL_CANT_BASE_OUTPUT_EXCEL = 'I' # Cantidad base
-COL_CANT_CALC_OUTPUT_EXCEL = 'J' # Cant. base calculada
-COL_DIFERENCIA_OUTPUT_EXCEL = 'K' # diferencia
-COL_PESO_NETO_OUTPUT_EXCEL = 'L' # peso neto
-COL_SECUENCIA_OUTPUT_EXCEL = 'M' # secuencia recurso
-COL_MANO_OBRA_OUTPUT_EXCEL = 'R' # Mano de obra (R es la posición 18 en el FINAL_COL_ORDER)
-COL_SUMA_VALORES_OUTPUT_EXCEL = 'T' # suma valores (T es la posición 20 en el FINAL_COL_ORDER)
+COL_CANT_BASE_OUTPUT_EXCEL = 'I' 
+COL_CANT_CALC_OUTPUT_EXCEL = 'J' 
+COL_DIFERENCIA_OUTPUT_EXCEL = 'K' 
+COL_PESO_NETO_OUTPUT_EXCEL = 'L' 
+COL_MANO_OBRA_OUTPUT_EXCEL = 'R' 
 COL_NRO_PERSONAS_OUTPUT_EXCEL = 'V'
 COL_NRO_MAQUINAS_OUTPUT_EXCEL = 'X'
+COL_PSTTBJO_OUTPUT_EXCEL = 'AB' 
+
 
 # --- CONSTANTES DE REFERENCIA EXCEL EN LAS HOJAS DE BÚSQUEDA ---
-# Referencias a la hoja 'Especif y Rutas' (archivo externo)
 RANGO_EXTERNO_BUSCARV = '$A:$AC'
 COL_CANT_EXTERNA_INDEX = 2 
 COL_RECHAZO_EXTERNA_INDEX = 29
 
-# Referencias a la hoja 'Peso neto'
 HOJA_PESO_NETO = 'Peso neto'
 RANGO_PN_BUSCARV = '$A:$C'
 COL_PESO_NETO_INDEX = 3
 
-# Referencias a la hoja 'Mano de obra'
-HOJA_SECUENCIAS = 'Secuencias'
 HOJA_MANO_OBRA = 'Mano de obra'
 RANGO_MO_BUSCARV = '$A:$E'
 COL_TIEMPO_MO_INDEX = 3
-COL_CANTIDAD_MAQUINAS_MO_INDEX = 4
 COL_CANTIDAD_PERSONAS_MO_INDEX = 5
+COL_CANTIDAD_MAQUINAS_MO_INDEX = 4
 
 
 # --- FUNCIONES DE LÓGICA ---
@@ -154,21 +146,26 @@ def detectar_y_marcar_cantidad_atipica(grupo: pd.DataFrame) -> pd.Series:
 
     return es_diferente_a_moda
 
-def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_destino: list, fill_encabezado: PatternFill, font_negrita: Font):
+def crear_y_guardar_hoja_solo_valores(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_destino: list, fill_encabezado: PatternFill, font_negrita: Font):
     """
-    Crea una nueva hoja, la rellena con las columnas especificadas de df_base,
-    y aplica formato de encabezado a las columnas definidas en COLUMNAS_A_RESALTAR.
+    Crea una nueva hoja, reemplazando cualquier fórmula de Excel con NaN antes de la escritura
+    para evitar errores de sintaxis en las hojas secundarias.
     """
     if nombre_hoja in wb.sheetnames:
         del wb[nombre_hoja]
 
     ws = wb.create_sheet(nombre_hoja)
-
-    # 1. Crear el nuevo DataFrame con las columnas solicitadas
+    
+    # 1. Crear el nuevo DataFrame con las columnas solicitadas y reemplazar fórmulas por NaN
     df_nuevo = pd.DataFrame()
     for col in columnas_destino:
-        # Asegurarse de que las columnas que contienen la fórmula de Excel se escriban como string
-        df_nuevo[col] = df_base[col] if col in df_base.columns else np.nan
+        data = df_base[col] if col in df_base.columns else np.nan
+        
+        if isinstance(data, pd.Series):
+            # Reemplazar cualquier valor que comience con '=' (fórmula) por NaN
+            data = data.apply(lambda x: np.nan if isinstance(x, str) and str(x).startswith('=') else x)
+            
+        df_nuevo[col] = data
 
     # 2. Escribir el nuevo DataFrame en la hoja
     for row in dataframe_to_rows(df_nuevo, header=True, index=False):
@@ -263,7 +260,7 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     cols_externo = pd.read_excel(file_info_externa, sheet_name=HOJA_EXTERNA, nrows=0).columns.tolist()
     file_info_externa.seek(0)
 
-    nombre_col_rechazo_externa = cols_externo[IDX_RECHAZO_EXTERNA] if IDX_RECHAZO_EXTERNA < len(cols_externo) else 'Columna AC'
+    nombre_col_rechazo_externa = cols_externo[IDX_RECHAZO_EXTERNA] if IDX_RECHAZA_EXTERNA < len(cols_externo) else 'Columna AC'
     cols_a_leer_externo = [NOMBRE_COL_CLAVE_EXTERNA, NOMBRE_COL_CANT_EXTERNA, nombre_col_rechazo_externa]
     df_externo = pd.read_excel(file_info_externa, sheet_name=HOJA_EXTERNA, header=0, usecols=cols_a_leer_externo)
     file_info_externa.seek(0)
@@ -374,26 +371,21 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         # 5. CÁLCULO DE MANO DE OBRA, PERSONAS Y MÁQUINAS (LÓGICA PYTHON - VALOR FIJO)
         st.info("✅ **Mano de Obra, Personas y Máquinas** se calculan y se insertan como **valores fijos**.")
 
-        # Índices de df_mano_obra (A=0, C=2, D=3, E=4)
         COL_PSTTBJO_MO = 0  
         COL_TIEMPO_MO = 2   
         COL_CANTIDAD_MAQUINAS_MO = 3 
         COL_CANTIDAD_PERSONAS_MO = 4 
 
-        # Limpieza de datos en df_mano_obra
         df_mano_obra[COL_PSTTBJO_MO] = df_mano_obra[COL_PSTTBJO_MO].astype(str).str.strip()
         for col_idx in [COL_TIEMPO_MO, COL_CANTIDAD_MAQUINAS_MO, COL_CANTIDAD_PERSONAS_MO]:
             df_mano_obra[col_idx] = pd.to_numeric(df_mano_obra[col_idx], errors='coerce')  
 
-        # Filtro: Solo operaciones que terminan en '1'
         COL_OP = 'Op.'
         op_col = df_original[COL_OP].astype(str).str.strip()
         indices_terminan_en_1 = op_col.str.endswith('1')
         psttbjo_filtrado = df_original.loc[indices_terminan_en_1, psttbjo_col_name].astype(str).str.strip()
 
-        # Mapeos para Mano de Obra, Personas y Máquinas
         def mapear_mo_filtros(col_origen: int, col_destino: str):
-            """Genera el mapa y aplica el mapeo solo a las filas filtradas."""
             mapa = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MO], keep='first').set_index(COL_PSTTBJO_MO)[col_origen]
             df_original.loc[indices_terminan_en_1, col_destino] = psttbjo_filtrado.map(mapa)
 
@@ -416,7 +408,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             lambda x: obtener_secuencia(x, df_secuencias)
         )
 
-        # 7.5 CÁLCULO DE ATÍPICOS (Se usa Cant. calc. y Peso Neto temporales)
+        # 7.5 CÁLCULO DE ATÍPICOS 
         cols_agrupamiento = [COL_PESO_NETO, COL_SECUENCIA]
         df_original[COL_PESO_NETO] = pd.to_numeric(df_original[COL_PESO_NETO], errors='coerce')
         df_original[COL_SECUENCIA] = pd.to_numeric(df_original[COL_SECUENCIA], errors='coerce')
@@ -426,12 +418,12 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         ).reset_index(level=list(range(len(cols_agrupamiento))), drop=True).fillna(False)
         
         # --------------------------------------------------------------------------
-        # REEMPLAZO DE COLUMNAS POR FÓRMULAS DE EXCEL (Las que deben ser fórmulas)
+        # REEMPLAZO DE COLUMNAS POR FÓRMULAS DE EXCEL (solo en Hoja de Salida)
         # --------------------------------------------------------------------------
 
-        # --- 3. Fórmulas BUSCARV para Cant. base calculada (J), % rechazo (H), y Peso Neto (L) ---
+        # --- 3. Fórmulas BUSCARV ---
         
-        # 3.1. COL_CANT_CALCULADA (Fórmula: reemplaza el valor temporal)
+        # 3.1. COL_CANT_CALCULADA (Fórmula)
         formulas_cant_calc = [
             f'=BUSCARV({COL_CLAVE_OUTPUT_EXCEL}{r};\'{HOJA_EXTERNA}\'!{RANGO_EXTERNO_BUSCARV};{COL_CANT_EXTERNA_INDEX};FALSO)' 
             for r in indices_fila_excel
@@ -445,7 +437,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         ]
         df_original[COL_PORCENTAJE_RECHAZO] = formulas_rechazo
 
-        # 3.3. COL_PESO_NETO (Fórmula: reemplaza el valor temporal)
+        # 3.3. COL_PESO_NETO (Fórmula)
         formulas_peso_neto = [
             f'=BUSCARV({COL_MATERIAL_OUTPUT_EXCEL}{r};\'{HOJA_PESO_NETO}\'!{RANGO_PN_BUSCARV};{COL_PESO_NETO_INDEX};FALSO)'
             for r in indices_fila_excel
@@ -453,10 +445,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         df_original[COL_PESO_NETO] = formulas_peso_neto
 
         # --- 6. Suma de Valores (Fórmula SUMA) ---
-        # La suma es de ValPref(O) + ValPref1(P) + ValPref2(Q) + COL_MANO_OBRA(R) + ValPref3(S) + ValPref4(T) + ValPref5(U) 
-        # (Basado en FINAL_COL_ORDER)
-        # Las columnas a sumar son: ValPref(O), ValPref1(P), COL_MANO_OBRA(R), ValPref3(S). (Sumando solo las del cálculo original)
-        # ValPref = O, ValPref1 = P, COL_MANO_OBRA = R, ValPref3 = S
+        # Suma de ValPref(O) + ValPref1(P) + COL_MANO_OBRA(R) + ValPref3(S)
         formulas_suma = [f'=O{r}+P{r}+R{r}+S{r}' for r in indices_fila_excel]
         df_original[COL_SUMA_VALORES] = formulas_suma
         
@@ -480,7 +469,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         
         # Formato de valores fijos de Python
         def formato_excel_regional_2_dec(x):
-             # Necesario para que el valor de Python se escriba en formato Excel correcto
              return f"{x:.2f}".replace('.', ',') if pd.notna(x) and pd.api.types.is_number(x) else x
         
         # Aplicar formato de 2 decimales a Mano de Obra (Valor fijo)
@@ -499,15 +487,14 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         wb = load_workbook(file_original)
         
         # Definición de Estilos
-        fill_anomalia = PatternFill(start_color='FFA500', end_color='FFA500', fill_type='solid') # Naranja (Atípicos)
-        fill_encabezado = PatternFill(start_color='DDEBF7', end_color='DDEBF7', fill_type='solid') # Azul claro (Calculadas)
+        fill_anomalia = PatternFill(start_color='FFA500', end_color='FFA500', fill_type='solid') 
+        fill_encabezado = PatternFill(start_color='DDEBF7', end_color='DDEBF7', fill_type='solid') 
         font_negrita = Font(bold=True)
 
-        # Crear y escribir la hoja principal procesada
+        # Crear y escribir la hoja principal procesada (AQUÍ SE ESCRIBEN LAS FÓRMULAS)
         if HOJA_SALIDA in wb.sheetnames: del wb[HOJA_SALIDA]
         ws = wb.create_sheet(HOJA_SALIDA)
 
-        # 8.1 Escribir los datos en la hoja (openpyxl inserta la cadena con '=' como fórmula)
         for row in dataframe_to_rows(df_original_final, header=True, index=False):
             ws.append(row)
 
@@ -565,10 +552,10 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
                     cell = ws.cell(row=r, column=col_idx)
                     cell.number_format = number_format
                     
-        # --- CREACIÓN DE HOJAS ADICIONALES (Se pasan los estilos) ---
-        crear_y_guardar_hoja(wb, df_original, HOJA_LSMW, COLUMNAS_LSMW, fill_encabezado, font_negrita)
-        crear_y_guardar_hoja(wb, df_original, HOJA_CAMPOS_USUARIO, COLUMNAS_CAMPOS_USUARIO, fill_encabezado, font_negrita)
-        crear_y_guardar_hoja(wb, df_original, HOJA_PORCENTAJE_RECHAZO, COLUMNAS_RECHAZO, fill_encabezado, font_negrita)
+        # --- CREACIÓN DE HOJAS ADICIONALES (SOLO VALORES para evitar el error de Excel) ---
+        crear_y_guardar_hoja_solo_valores(wb, df_original, HOJA_LSMW, COLUMNAS_LSMW, fill_encabezado, font_negrita)
+        crear_y_guardar_hoja_solo_valores(wb, df_original, HOJA_CAMPOS_USUARIO, COLUMNAS_CAMPOS_USUARIO, fill_encabezado, font_negrita)
+        crear_y_guardar_hoja_solo_valores(wb, df_original, HOJA_PORCENTAJE_RECHAZO, COLUMNAS_RECHAZO, fill_encabezado, font_negrita)
 
         # Guardar el libro de trabajo modificado en un buffer de Bytes
         output_buffer = io.BytesIO()
@@ -674,7 +661,7 @@ def main():
                     mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     use_container_width=True
                 )
-                st.info(f"El archivo descargado contiene todas las hojas originales más las 4 hojas de reporte: **{hoja_salida}**, '{HOJA_LSMW}', '{HOJA_CAMPOS_USUARIO}' y '{HOJA_PORCENTAJE_RECHAZO}'.")
+                st.info(f"El archivo descargado contiene todas las hojas originales más las 4 hojas de reporte: **{hoja_salida}** (con fórmulas), '{HOJA_LSMW}', '{HOJA_CAMPOS_USUARIO}' y '{HOJA_PORCENTAJE_RECHAZO}' (con valores fijos).")
             else:
                 st.error("❌ Error en el Proceso")
                 st.warning(resultado)
