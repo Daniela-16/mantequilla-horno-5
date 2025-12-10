@@ -593,9 +593,110 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         return True, output_buffer
 
     except KeyError as ke:
-        return False, f"❌ ERROR CRÍTICO DE ENCABEZADO: El script no encontró la columna {ke}. Verifique las hojas y encabezados del archivo original o externo. Asegúrese que el nombre de la hoja
+        return False, f"❌ ERROR CRÍTICO DE ENCABEZADO: El script no encontró la columna {ke}. Verifique las hojas y encabezados del archivo original o externo. Asegúrese que el nombre de la hoja principal **{config['HOJA_PRINCIPAL']}** es correcto."
+    except IndexError as ie:
+        return False, f"❌ ERROR CRÍTICO DE ÍNDICE: Un índice de columna está fuera de rango. Mensaje: {ie}"
+    except ValueError as ve:
+        if 'sheetname' in str(ve) or 'Worksheet' in str(ve):
+            hojas_requeridas = [config['HOJA_PRINCIPAL'], 'Peso neto', HOJA_SECUENCIAS, HOJA_MANO_OBRA, 'Especif y Rutas']
+            return False, f"❌ Error de Lectura de Hoja: Una de las hojas clave ({', '.join(hojas_requeridas)}) no se encontró en los archivos cargados. Mensaje: {ve}"
+        return False, f"❌ Ocurrió un error inesperado de valor. Mensaje: {ve}"
+    except Exception as e:
+        return False, f"❌ Ocurrió un error inesperado. Mensaje: {e}"
 
 
+# --- INTERFAZ DE STREAMLIT (CON SELECTOR DE HORNO) ---
+
+def main():
+    """Configura la interfaz de usuario de Streamlit."""
+    st.set_page_config(
+        page_title="Automatización Hornos",
+        layout="centered",
+        initial_sidebar_state="auto"
+    )
+
+    st.title("⚙️ Automatización Verificación de datos - HORNOS")
+    st.markdown("Seleccione el Horno a procesar y luego cargue los archivos.")
+
+    # SELECCIÓN DEL HORNO
+    hornos_disponibles = list(HORNOS_CONFIG.keys())
+    selected_horno = st.radio(
+        "**1. Seleccione el Horno a Procesar:**",
+        hornos_disponibles,
+        index=hornos_disponibles.index('HORNO 5') if 'HORNO 5' in hornos_disponibles else 0,
+        horizontal=True,
+        key="horno_selector" 
+    )
+    st.markdown("---")
+    
+    config = HORNOS_CONFIG[selected_horno]
+    hoja_principal = config['HOJA_PRINCIPAL']
+    hoja_salida = config['HOJA_SALIDA']
+
+    st.subheader(f"2. Carga de Archivos para **{selected_horno}** (Hoja Principal: '{hoja_principal}')")
+    
+    col1, col2 = st.columns(2)
+
+    with col1:
+        file_original = st.file_uploader(
+            f"Carga la base de datos original",
+            type=['xlsx'],
+            help=f"El archivo debe contener las hojas: **{hoja_principal}**, 'Peso neto', '{HOJA_SECUENCIAS}' y '{HOJA_MANO_OBRA}'.",
+            key="file_original_uploader" 
+        )
+
+    with col2:
+        file_externa = st.file_uploader(
+            "Carga el archivo externo de toma de información.",
+            type=['xlsb', 'xlsx'],
+            help="El archivo que contiene la hoja 'Especif y Rutas'.",
+            key="file_externa_uploader" 
+        )
+
+    st.markdown("---")
+
+    # Botón de ejecución y manejo del proceso
+    if st.button(f"▶️ PROCESAR {selected_horno}", type="primary", use_container_width=True, key="process_button"):
+        if file_original is None or file_externa is None:
+            st.error("Por favor, cargue ambos archivos antes de procesar.")
+        else:
+            file_buffer_original = io.BytesIO(file_original.getvalue())
+            file_buffer_externa = io.BytesIO(file_externa.getvalue())
+
+            with st.spinner(f'Procesando datos y generando reporte para {selected_horno}...'):
+                success, resultado = automatizacion_final_diferencia_reforzada(
+                    file_buffer_original,
+                    file_buffer_externa,
+                    selected_horno
+                )
+
+            st.markdown("---")
+
+            if success:
+                st.success(f"✅ Proceso para **{selected_horno}** completado exitosamente.")
+
+                # Nombre de archivo de salida
+                base_name = file_original.name.split('.')[0]
+                if hoja_principal in base_name:
+                    file_name_output = base_name.replace(hoja_principal, '') + f"{hoja_salida}.xlsx"
+                else:
+                    file_name_output = f"{base_name}_{hoja_salida}.xlsx"
+                
+                st.download_button(
+                    label="⬇️ Descargar Archivo Procesado",
+                    data=resultado,
+                    file_name=file_name_output,
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    use_container_width=True
+                )
+                st.info(f"El archivo descargado contiene todas las hojas originales más las 4 hojas de reporte: **{hoja_salida}**, '{HOJA_LSMW}', '{HOJA_CAMPOS_USUARIO}' y '{HOJA_PORCENTAJE_RECHAZO}'.")
+            else:
+                st.error("❌ Error en el Proceso")
+                st.warning(resultado)
+                st.write("Verifique el formato de las hojas y los nombres de las columnas en sus archivos.")
+
+if __name__ == "__main__":
+    main()
 
 
 
