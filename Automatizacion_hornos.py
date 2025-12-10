@@ -3,6 +3,10 @@
 Creado el Lunes 24 de Noviembre de 2025
 
 @author: NCGNpracpim
+
+MODIFICACIONES SOLICITADAS:
+1. Cantidad Base (Hoja de origen): Usar el valor sin decimales.
+2. Cantidad Base Calculada (Archivo externo): Buscar la cantidad MAYOR para una clave.
 """
 
 import pandas as pd
@@ -193,13 +197,13 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     if col_names['cant_base_leida'] != NOMBRE_COL_CANTIDAD_BASE:
         df_original = df_original.rename(columns={col_names['cant_base_leida']: NOMBRE_COL_CANTIDAD_BASE})
         col_names['cant_base_leida'] = NOMBRE_COL_CANTIDAD_BASE
-        
+    
     # Renombrar otras columnas clave si el nombre de la variable no coincide con el nombre de la columna
     # Esto es vital porque el código asume que el nombre de la columna es igual a la constante:
     if col_names['material'] != 'Material':
         df_original.rename(columns={col_names['material']: 'Material'}, inplace=True)
         col_names['material'] = 'Material'
-        
+    
     if col_names['psttbjo'] != 'PstoTbjo':
         df_original.rename(columns={col_names['psttbjo']: 'PstoTbjo'}, inplace=True)
         col_names['psttbjo'] = 'PstoTbjo'
@@ -292,7 +296,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         # --- LÓGICA DE CONCATENACIÓN Y DETERMINACIÓN DE COLUMNA DE BÚSQUEDA ---
         
-        # Por defecto, la columna de búsqueda es el Puesto de Trabajo original
         columna_para_secuencia = psttbjo_col_name 
         
         # 1. Verificar si la columna 'Linea' existe por nombre
@@ -323,18 +326,53 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             columna_para_secuencia = COL_PSTTBJO_CONCATENADO
         else:
             st.info("✅ **Columna 'Linea' no detectada o vacía**. Usando solo el Puesto de Trabajo para la búsqueda de secuencia.")
-            # columna_para_secuencia ya es psttbjo_col_name
         # ------------------------------------------------------------------
 
 
         # 3. Mapeo de Cantidad Calculada, Rechazo y Peso Neto
+        
+        # Función auxiliar para mapeo simple ('first' dupe)
         def mapear_columna(df_mapeo: pd.DataFrame, col_indice: str, col_destino: str, col_clave: str, nombre_col_mapa: str):
-            """Realiza el mapeo de una columna externa al DataFrame principal."""
+            """Realiza el mapeo de una columna externa al DataFrame principal (usa 'first')."""
             mapa = df_mapeo.drop_duplicates(subset=[col_clave], keep='first').set_index(col_clave)[nombre_col_mapa]
             df_original[col_destino] = df_original[col_indice].map(mapa)
 
-        mapear_columna(df_externo, COL_CLAVE, COL_CANT_CALCULADA, NOMBRE_COL_CLAVE_EXTERNA, NOMBRE_COL_CANT_EXTERNA)
+
+        # >>> NUEVA FUNCIÓN PARA BUSCAR LA CANTIDAD MÁXIMA (COL_CANT_CALCULADA) <<<
+        def mapear_con_maxima_cantidad(df_origen: pd.DataFrame, df_externo: pd.DataFrame, col_clave_origen: str, col_clave_externa: str, col_cantidad_externa: str, col_destino: str):
+            """
+            Realiza el mapeo de la Cantidad Base Calculada. Si hay múltiples coincidencias
+            para la clave, selecciona el registro con el valor máximo en col_cantidad_externa.
+            """
+            # 1. Asegurar la columna de cantidad como numérica
+            df_externo[col_cantidad_externa] = pd.to_numeric(df_externo[col_cantidad_externa], errors='coerce')
+            
+            # 2. Encontrar la Cantidad Máxima por Clave (Ordena descendente y toma el primero)
+            df_mapa = (
+                df_externo.sort_values(by=col_cantidad_externa, ascending=False)
+                .drop_duplicates(subset=[col_clave_externa], keep='first')
+                .set_index(col_clave_externa)[col_cantidad_externa]
+            )
+            
+            # 3. Aplicar el mapeo al DataFrame de origen
+            df_origen[col_destino] = df_origen[col_clave_origen].map(df_mapa)
+        
+        st.info(f"🔄 Aplicando nueva lógica: **'{COL_CANT_CALCULADA}'** se mapea con el **valor máximo** del archivo externo.")
+        
+        # 3.1. Mapeo de Cantidad Calculada (usando la nueva lógica de MAX)
+        mapear_con_maxima_cantidad(
+            df_original, 
+            df_externo, 
+            COL_CLAVE, 
+            NOMBRE_COL_CLAVE_EXTERNA, 
+            NOMBRE_COL_CANT_EXTERNA, 
+            COL_CANT_CALCULADA
+        )
+
+        # 3.2. Mapeo de Porcentaje de Rechazo (usa la lógica original, 'first' dupe)
         mapear_columna(df_externo, COL_CLAVE, COL_PORCENTAJE_RECHAZO, NOMBRE_COL_CLAVE_EXTERNA, col_names['nombre_col_rechazo_externa'])
+        
+        # 3.3. Mapeo de Peso Neto
         mapear_columna(df_peso_neto, material_col_name, COL_PESO_NETO, col_names['material_pn'], col_names['peso_neto_valor'])
 
         # 4. Cálculo de Secuencia (Usando la columna determinada)
@@ -385,25 +423,43 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         # 6. Suma de Valores y formato
         def formato_excel_regional_suma(x):
             """Aplica formato de coma decimal para Excel y maneja NaN/cero."""
+            # Asegura el formato con dos decimales y usa coma como separador decimal
             return f"{x:.2f}".replace('.', ',') if pd.notna(x) and x != 0.0 else np.nan
 
         df_temp_sum = df_original[COLUMNAS_A_SUMAR].apply(lambda col: pd.to_numeric(col, errors='coerce'))
         df_original[COL_SUMA_VALORES] = df_temp_sum.sum(axis=1, skipna=True).apply(formato_excel_regional_suma)
 
         # 7. Cálculo de Diferencia y Atípicos
-        H = pd.to_numeric(df_original[NOMBRE_COL_CANTIDAD_BASE].astype(str).str.replace(',', '.', regex=False).str.strip(), errors='coerce')
+        
+        # MODIFICACIÓN CLAVE: Coger Cantidad base (H) sin decimales.
+        st.info("📐 Cantidad base (Columna de origen) se está truncando a entero para el cálculo de la diferencia.")
+        H_str = df_original[NOMBRE_COL_CANTIDAD_BASE].astype(str).str.replace(',', '.', regex=False).str.strip()
+        H_float = pd.to_numeric(H_str, errors='coerce')
+        # Truncar (eliminar decimales)
+        H_trunc = np.trunc(H_float) 
+        
         I = pd.to_numeric(df_original[COL_CANT_CALCULADA], errors='coerce')
 
-        diferencia_calculada = H.fillna(0) - I.fillna(0)
+        diferencia_calculada = H_trunc.fillna(0) - I.fillna(0)
 
         def formato_excel_regional(x):
             """Aplica formato de coma decimal para Excel."""
+            # Este formato es para las columnas Cant. base calculada y diferencia
             return f"{x:.2f}".replace('.', ',') if pd.notna(x) else np.nan
+        
+        def formato_sin_decimales(x):
+            """Formato para la Cantidad base de origen (entero)"""
+            # Usar .0f para asegurar que no haya decimales
+            return f"{x:.0f}".replace('.', ',') if pd.notna(x) else np.nan
 
+        # Aplicar el formato de sin decimales a la columna de origen
+        df_original[NOMBRE_COL_CANTIDAD_BASE] = H_trunc.apply(formato_sin_decimales)
+
+        # Aplicar formato de dos decimales a la diferencia
         df_original[COL_DIFERENCIA] = diferencia_calculada.apply(formato_excel_regional)
 
         # Atípicos
-        df_original[COL_CANT_CALCULADA] = I 
+        df_original[COL_CANT_CALCULADA] = I # I es float, se usa para el cálculo de atípicos
         cols_agrupamiento = [COL_PESO_NETO, COL_SECUENCIA]
         for col in cols_agrupamiento:
             if col not in df_original.columns:
@@ -420,6 +476,9 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         if COL_PSTTBJO_CONCATENADO in df_original.columns:
              df_original = df_original.drop(columns=[COL_PSTTBJO_CONCATENADO])
             
+        # IMPORTANTE: Reaplicar el formato regional a COL_CANT_CALCULADA antes de guardar
+        df_original[COL_CANT_CALCULADA] = df_original[COL_CANT_CALCULADA].apply(formato_excel_regional)
+
         df_original_final = df_original.reindex(columns=[c for c in FINAL_COL_ORDER if c in df_original.columns])
 
         # Cargar el libro de trabajo desde el buffer (Para mantener las hojas originales)
@@ -439,7 +498,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             ws.append(row)
 
         # 4. APLICACIÓN DE FORMATOS EN HOJA PRINCIPAL
-        COLUMNAS_ENCABEZADO_FORMATO = [COL_CANT_CALCULADA] + COLUMNAS_A_RESALTAR
+        COLUMNAS_ENCABEZADO_FORMATO = [COL_CANT_CALCULADA, NOMBRE_COL_CANTIDAD_BASE] + COLUMNAS_A_RESALTAR
 
         indices_encabezado = [
             df_original_final.columns.get_loc(col_name) + 1 
@@ -580,4 +639,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
