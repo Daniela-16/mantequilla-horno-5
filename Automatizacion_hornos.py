@@ -8,7 +8,7 @@ MODIFICACIONES IMPLEMENTADAS:
 1. COL_SECUENCIA, Mano de Obra (Personas/Máquinas) se calculan en Python (valores fijos).
 2. Fórmulas de Excel (BUSCARV, Suma, Resta) se usan para Cant. Calculada, Diferencia, Peso Neto y Rechazo.
 3. CORRECCIÓN DE ERROR (Log de Recuperación): Las fórmulas SOLO se escriben en la Hoja Principal de Salida.
-   En las hojas de reporte (LSMW, Campos, Rechazo), se escriben los VALORES, no las fórmulas, para evitar errores de sintaxis en el archivo final.
+4. CORRECCIÓN DE ERROR (NameError): Corregida la variable 'IDX_RECHAZA_EXTERNA' a 'IDX_RECHAZO_EXTERNA'.
 """
 
 import pandas as pd
@@ -196,7 +196,6 @@ def obtener_secuencia(puesto_trabajo: str, df_secuencias: pd.DataFrame) -> Union
 
     return np.nan
 
-# ... (cargar_y_limpiar_datos se mantiene igual) ...
 def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.BytesIO, nombre_horno: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, str]]:
     """Carga todos los DataFrames necesarios desde los buffers de archivo."""
     
@@ -260,7 +259,10 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     cols_externo = pd.read_excel(file_info_externa, sheet_name=HOJA_EXTERNA, nrows=0).columns.tolist()
     file_info_externa.seek(0)
 
-    nombre_col_rechazo_externa = cols_externo[IDX_RECHAZO_EXTERNA] if IDX_RECHAZA_EXTERNA < len(cols_externo) else 'Columna AC'
+    # <<<<<<<<<<<<<<<<< CORRECCIÓN DEL ERROR DE NOMBRE AQUÍ >>>>>>>>>>>>>>>>>>
+    # Corregido: IDX_RECHAZA_EXTERNA cambiado a IDX_RECHAZO_EXTERNA
+    nombre_col_rechazo_externa = cols_externo[IDX_RECHAZO_EXTERNA] if IDX_RECHAZO_EXTERNA < len(cols_externo) else 'Columna AC'
+    
     cols_a_leer_externo = [NOMBRE_COL_CLAVE_EXTERNA, NOMBRE_COL_CANT_EXTERNA, nombre_col_rechazo_externa]
     df_externo = pd.read_excel(file_info_externa, sheet_name=HOJA_EXTERNA, header=0, usecols=cols_a_leer_externo)
     file_info_externa.seek(0)
@@ -369,8 +371,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         mapear_columna_temp(df_peso_neto, material_col_name, COL_PESO_NETO, col_names['material_pn'], col_names['peso_neto_valor'])
 
         # 5. CÁLCULO DE MANO DE OBRA, PERSONAS Y MÁQUINAS (LÓGICA PYTHON - VALOR FIJO)
-        st.info("✅ **Mano de Obra, Personas y Máquinas** se calculan y se insertan como **valores fijos**.")
-
         COL_PSTTBJO_MO = 0  
         COL_TIEMPO_MO = 2   
         COL_CANTIDAD_MAQUINAS_MO = 3 
@@ -445,7 +445,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         df_original[COL_PESO_NETO] = formulas_peso_neto
 
         # --- 6. Suma de Valores (Fórmula SUMA) ---
-        # Suma de ValPref(O) + ValPref1(P) + COL_MANO_OBRA(R) + ValPref3(S)
         formulas_suma = [f'=O{r}+P{r}+R{r}+S{r}' for r in indices_fila_excel]
         df_original[COL_SUMA_VALORES] = formulas_suma
         
@@ -669,6 +668,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
