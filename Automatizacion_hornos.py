@@ -7,8 +7,8 @@ Creado el Lunes 24 de Noviembre de 2025
 MODIFICACIONES SOLICITADAS:
 1. Cantidad Base (Hoja de origen): Usar el valor sin decimales.
 2. Cantidad Base Calculada (Archivo externo): Buscar la cantidad MAYOR para una clave.
-3. **Colocar la fórmula de Excel en la columna 'diferencia'.**
-4. **NUEVO: En la hoja 'campos de usuario', filtrar por 'Op.' impar >= 31.**
+3. Colocar la fórmula de Excel en la columna 'diferencia'.
+4. NUEVO: En la hoja 'campos de usuario', filtrar por 'Op.' impar >= 31.
 """
 
 import pandas as pd
@@ -45,7 +45,7 @@ COL_PSTTBJO_CONCATENADO = 'PstoTbjo_Concat' # Nombre temporal para la columna co
 # Nombres de hojas a crear (Comunes)
 HOJA_SECUENCIAS = 'Secuencias' # Esta hoja es común
 HOJA_LSMW = 'lsmw'
-HOJA_CAMPOS_USUARIO = 'campos de usuario' # Hoja a la que se aplicará el nuevo filtro
+HOJA_CAMPOS_USUARIO = 'campos de usuario' # Hoja a la que se aplica el filtro
 HOJA_PORCENTAJE_RECHAZO = '% de rechazo'
 COL_OP = 'Op.' # Constante para la columna de Operación
 
@@ -64,7 +64,7 @@ COLUMNAS_LSMW = [
     COL_SUMA_VALORES, 'ValPref5'
 ]
 COLUMNAS_CAMPOS_USUARIO = [
-    'GrpHRuta','PstoTbjo', 'CGH', 'Material', 'Ce.', COL_OP,
+    'GrpHRuta', 'CGH', 'Material', 'Ce.', COL_OP,
     'Indicador', 'clase de control',
     COL_NRO_PERSONAS, COL_NRO_MAQUINAS
 ]
@@ -99,7 +99,6 @@ IDX_MATERIAL = 2 # Columna C
 IDX_GRPLF = 4 # Columna E
 IDX_CANTIDAD_BASE_LEIDA = 6 # Columna G
 IDX_PSTTBJO = 18 # Columna S (Puesto de Trabajo)
-# IDX_LINEA (Columna T) ya NO se usará para la carga, solo se usa para referenciar el nombre 'Linea'
 IDX_MATERIAL_PN = 0
 IDX_RECHAZO_EXTERNA = 28
 
@@ -123,20 +122,24 @@ def filtrar_operaciones_impares_desde_31(df: pd.DataFrame) -> pd.DataFrame:
     Filtra el DataFrame para incluir solo filas donde 'Op.' es un número impar >= 31.
     """
     if COL_OP not in df.columns:
-        return df # Si la columna no existe, se devuelve sin filtrar (aunque debería existir)
+        st.warning("Columna 'Op.' no encontrada para aplicar filtro en 'campos de usuario'.")
+        return pd.DataFrame() # Devuelve un DataFrame vacío si no hay columna clave
 
-    # 1. Intentar convertir la columna 'Op.' a numérico, manejando errores (coercing)
-    df['Op_Num'] = pd.to_numeric(df[COL_OP], errors='coerce')
+    df_temp = df.copy() 
+    
+    # 1. Intentar convertir la columna 'Op.' a numérico
+    # Limpia el string y lo convierte, 'coerce' convierte fallos (como texto) a NaN
+    df_temp['Op_Num'] = pd.to_numeric(df_temp[COL_OP].astype(str).str.strip(), errors='coerce')
     
     # 2. Definir la condición: No es NaN AND es >= 31 AND es impar (módulo 2 es 1)
     condicion_impar_desde_31 = (
-        df['Op_Num'].notna() & 
-        (df['Op_Num'] >= 31) & 
-        (df['Op_Num'] % 2 != 0)
+        df_temp['Op_Num'].notna() & 
+        (df_temp['Op_Num'] >= 31) & 
+        (df_temp['Op_Num'] % 2 != 0)
     )
     
-    # 3. Aplicar el filtro y eliminar la columna temporal
-    df_filtrado = df[condicion_impar_desde_31].drop(columns=['Op_Num'], errors='ignore')
+    # 3. Aplicar el filtro y eliminar la columna temporal ANTES de devolver
+    df_filtrado = df_temp[condicion_impar_desde_31].drop(columns=['Op_Num'])
     
     return df_filtrado
 
@@ -147,13 +150,13 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
     y aplica formato de encabezado. Aplica filtro especial si es HOJA_CAMPOS_USUARIO.
     """
     
-    df_a_guardar = df_base.copy()
-
-    # --- NUEVA LÓGICA DE FILTRADO ---
+    # Si la hoja a crear es la de campos de usuario, aplicamos el filtro
     if nombre_hoja == HOJA_CAMPOS_USUARIO:
-        df_a_guardar = filtrar_operaciones_impares_desde_31(df_a_guardar)
-        st.info(f"✨ **Aplicado filtro de '{COL_OP}' impar (>= 31)** a la hoja '{nombre_hoja}'.")
-    # ---------------------------------
+        df_a_guardar = filtrar_operaciones_impares_desde_31(df_base)
+        st.info(f"✨ **Aplicado filtro de '{COL_OP}' impar (>= 31)** a la hoja '{nombre_hoja}'. Filas restantes: {len(df_a_guardar)}")
+    else:
+        # Para todas las demás hojas, usamos la base completa (una copia para seguridad)
+        df_a_guardar = df_base.copy()
     
     if nombre_hoja in wb.sheetnames:
         del wb[nombre_hoja]
@@ -163,7 +166,15 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
     # 1. Crear el nuevo DataFrame con las columnas solicitadas
     df_nuevo = pd.DataFrame()
     for col in columnas_destino:
+        # Aseguramos que la columna exista en el DataFrame filtrado/base
         df_nuevo[col] = df_a_guardar[col] if col in df_a_guardar.columns else np.nan
+        
+    # Manejar el caso de DataFrame vacío (si el filtro no encuentra nada)
+    if df_nuevo.empty and not df_a_guardar.empty:
+         # Si df_nuevo está vacío pero df_a_guardar no, significa que las columnas_destino no se encontraron.
+         st.error(f"Fallo al crear el DataFrame para la hoja '{nombre_hoja}'. Verifique los nombres de las columnas: {columnas_destino}")
+         # Crear una fila de encabezado vacía para que la hoja exista
+         df_nuevo = pd.DataFrame(columns=columnas_destino)
 
     # 2. Escribir el nuevo DataFrame en la hoja
     for row in dataframe_to_rows(df_nuevo, header=True, index=False):
@@ -219,22 +230,19 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
         'hoja_principal': hoja_principal
     }
 
-    # Definir las columnas a leer de la hoja principal: Leer TODAS las columnas para no depender del índice 19 (Linea)
+    # Definir las columnas a leer de la hoja principal: Leer TODAS las columnas
     df_original = pd.read_excel(
         file_original, 
         sheet_name=hoja_principal, 
         dtype={col_names['cant_base_leida']: str},
-        # usecols=None lee todas las columnas automáticamente
     )
     file_original.seek(0)
     
-    # Renombrar la columna de cantidad base si es necesario
+    # Renombrar columnas clave si es necesario (basado en índices leídos)
     if col_names['cant_base_leida'] != NOMBRE_COL_CANTIDAD_BASE:
         df_original = df_original.rename(columns={col_names['cant_base_leida']: NOMBRE_COL_CANTIDAD_BASE})
         col_names['cant_base_leida'] = NOMBRE_COL_CANTIDAD_BASE
     
-    # Renombrar otras columnas clave si el nombre de la variable no coincide con el nombre de la columna
-    # Esto es vital porque el código asume que el nombre de la columna es igual a la constante:
     if col_names['material'] != 'Material':
         df_original.rename(columns={col_names['material']: 'Material'}, inplace=True)
         col_names['material'] = 'Material'
@@ -310,10 +318,10 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         # 1. Carga y limpieza de datos (Se pasa el nombre del horno)
         df_original, df_externo, df_peso_neto, df_secuencias, df_mano_obra, col_names = cargar_y_limpiar_datos(file_original, file_info_externa, nombre_horno)
         
-        # Asegurar nombres de columnas clave que ya fueron renombradas o detectadas en cargar_y_limpiar_datos
+        # Asegurar nombres de columnas clave 
         material_col_name = 'Material'
         grplf_col_name = col_names['cols_original'][IDX_GRPLF]
-        psttbjo_col_name = 'PstoTbjo' # Ya renombrado/detectado como 'PstoTbjo'
+        psttbjo_col_name = 'PstoTbjo' 
 
         # 2. Creación de la Clave de Búsqueda
         def limpiar_col(df: pd.DataFrame, col_name: str) -> pd.Series:
@@ -341,7 +349,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             linea_data = df_original[COL_LINEA]
             linea_limpia = linea_data.astype(str).str.strip()
             
-            # Verificar si la columna 'Linea' contiene al menos un valor relevante (no vacío/nan)
+            # Verificar si la columna 'Linea' contiene al menos un valor relevante 
             linea_existe_y_es_relevante = linea_limpia.str.lower().str.contains(r'[a-z0-9]').any()
         else:
             linea_existe_y_es_relevante = False
@@ -367,23 +375,19 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         # 3. Mapeo de Cantidad Calculada, Rechazo y Peso Neto
         
-        # Función auxiliar para mapeo simple ('first' dupe)
         def mapear_columna(df_mapeo: pd.DataFrame, col_indice: str, col_destino: str, col_clave: str, nombre_col_mapa: str):
             """Realiza el mapeo de una columna externa al DataFrame principal (usa 'first')."""
             mapa = df_mapeo.drop_duplicates(subset=[col_clave], keep='first').set_index(col_clave)[nombre_col_mapa]
             df_original[col_destino] = df_original[col_indice].map(mapa)
 
-
-        # >>> FUNCIÓN PARA BUSCAR LA CANTIDAD MÁXIMA (COL_CANT_CALCULADA) <<<
         def mapear_con_maxima_cantidad(df_origen: pd.DataFrame, df_externo: pd.DataFrame, col_clave_origen: str, col_clave_externa: str, col_cantidad_externa: str, col_destino: str):
             """
-            Realiza el mapeo de la Cantidad Base Calculada. Si hay múltiples coincidencias
-            para la clave, selecciona el registro con el valor máximo en col_cantidad_externa.
+            Realiza el mapeo de la Cantidad Base Calculada, seleccionando el valor máximo.
             """
             # 1. Asegurar la columna de cantidad como numérica
             df_externo[col_cantidad_externa] = pd.to_numeric(df_externo[col_cantidad_externa], errors='coerce')
             
-            # 2. Encontrar la Cantidad Máxima por Clave (Ordena descendente y toma el primero)
+            # 2. Encontrar la Cantidad Máxima por Clave
             df_mapa = (
                 df_externo.sort_values(by=col_cantidad_externa, ascending=False)
                 .drop_duplicates(subset=[col_clave_externa], keep='first')
@@ -458,7 +462,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         # 6. Suma de Valores y formato
         def formato_excel_regional_suma(x):
             """Aplica formato de coma decimal para Excel y maneja NaN/cero."""
-            # Asegura el formato con dos decimales y usa coma como separador decimal
             return f"{x:.2f}".replace('.', ',') if pd.notna(x) and x != 0.0 else np.nan
 
         df_temp_sum = df_original[COLUMNAS_A_SUMAR].apply(lambda col: pd.to_numeric(col, errors='coerce'))
@@ -471,21 +474,16 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         H_str = df_original[NOMBRE_COL_CANTIDAD_BASE].astype(str).str.replace(',', '.', regex=False).str.strip()
         H_float = pd.to_numeric(H_str, errors='coerce')
         # Truncar (eliminar decimales)
-        H_trunc = np.trunc(H_float)  # Lo usamos para el cálculo de atípicos y para formatear la columna I
+        H_trunc = np.trunc(H_float)
         
         I = pd.to_numeric(df_original[COL_CANT_CALCULADA], errors='coerce')
 
-        # Cálculo de diferencia SÓLO para determinar el atípico y formatear la columna I, no para llenar COL_DIFERENCIA
-        diferencia_calculada = H_trunc.fillna(0) - I.fillna(0) # Se mantiene para la lógica de Atípicos
-
         def formato_excel_regional(x):
-            """Aplica formato de coma decimal para Excel."""
-            # Este formato es para la columna Cant. base calculada
+            """Aplica formato de coma decimal para Excel (2 decimales)."""
             return f"{x:.2f}".replace('.', ',') if pd.notna(x) else np.nan
         
         def formato_sin_decimales(x):
             """Formato para la Cantidad base de origen (entero)"""
-            # Usar .0f para asegurar que no haya decimales
             return f"{x:.0f}".replace('.', ',') if pd.notna(x) else np.nan
 
         # Aplicar el formato de sin decimales a la columna de origen (Columna I)
@@ -499,7 +497,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         cols_agrupamiento = [COL_PESO_NETO, COL_SECUENCIA]
         for col in cols_agrupamiento:
             if col not in df_original.columns:
-                 # Esto solo debería ocurrir si COL_PESO_NETO falló en el mapeo
                  raise KeyError(f"Columna de agrupamiento '{col}' falta en el DataFrame. Se necesita para calcular atípicos.")
 
         df_original[COL_ATIPICO] = df_original.groupby(cols_agrupamiento, dropna=True).apply(
@@ -535,35 +532,29 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
              ws.append(row)
 
         # --- APLICACIÓN DE FÓRMULA DE EXCEL EN COLUMNA 'diferencia' ---
-        # Determinar el índice de la columna de Diferencia (debe ser K, posición 11)
+        
         try:
-            col_diferencia_idx = df_original_final.columns.get_loc(COL_DIFERENCIA) + 1 # +1 (openpyxl es 1-based)
-            col_cant_base_idx = df_original_final.columns.get_loc(NOMBRE_COL_CANTIDAD_BASE) + 1 # Columna I
-            col_cant_calculada_idx = df_original_final.columns.get_loc(COL_CANT_CALCULADA) + 1 # Columna J
+            col_diferencia_idx = df_original_final.columns.get_loc(COL_DIFERENCIA) + 1 
+            col_cant_base_idx = df_original_final.columns.get_loc(NOMBRE_COL_CANTIDAD_BASE) + 1 
+            col_cant_calculada_idx = df_original_final.columns.get_loc(COL_CANT_CALCULADA) + 1 
         except KeyError:
-            # Fallback si el orden o el nombre de columna en el DataFrame final ha cambiado
             st.warning("No se pudo determinar la posición exacta de las columnas de diferencia. Asumiendo I=9, J=10, K=11.")
             col_diferencia_idx = 11
             col_cant_base_idx = 9
             col_cant_calculada_idx = 10
         
-        # Convertir el índice a la letra de columna de Excel
         from openpyxl.utils import get_column_letter
-        col_base_letter = get_column_letter(col_cant_base_idx) # I
-        col_calculada_letter = get_column_letter(col_cant_calculada_idx) # J
+        col_base_letter = get_column_letter(col_cant_base_idx) 
+        col_calculada_letter = get_column_letter(col_cant_calculada_idx) 
         
         st.info(f"✍️ Escribiendo la fórmula de Excel en la columna '{COL_DIFERENCIA}' ({get_column_letter(col_diferencia_idx)}).")
 
         # Rango de filas (desde la fila 2 hasta el final)
         for r in range(2, len(df_original_final) + 2):
             # Fórmula: =REDONDEAR.MENOS(I#; 0) - J# (Simula TRUNCAR(I#) - J#)
-            # Nota: Usamos la coma ',' como separador de argumentos para compatibilidad general con openpyxl/Excel
             formula = f'=REDONDEAR.MENOS({col_base_letter}{r}, 0) - {col_calculada_letter}{r}'
             
-            # Escribir la fórmula en la celda
             cell = ws.cell(row=r, column=col_diferencia_idx, value=formula)
-            
-            # Aplicar formato de número a dos decimales
             cell.number_format = '#,##0.00'
 
 
@@ -582,7 +573,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             header_cell.font = font_negrita
 
         # Aplicar el sombreado a los datos de 'Cant. base calculada' (naranja para atípicos)
-        # Usamos el índice J (10) o el que se haya detectado
         col_cant_calculada_idx = col_cant_calculada_idx 
 
         for r in range(2, len(df_original) + 2):
@@ -590,9 +580,8 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
                 cell_to_color = ws.cell(row=r, column=col_cant_calculada_idx)
                 cell_to_color.fill = fill_anomalia
 
-        # --- CREACIÓN DE HOJAS ADICIONALES (Se pasan los estilos y se aplica el filtro) ---
+        # --- CREACIÓN DE HOJAS ADICIONALES (El filtro se aplica dentro de crear_y_guardar_hoja) ---
         crear_y_guardar_hoja(wb, df_original, HOJA_LSMW, COLUMNAS_LSMW, fill_encabezado, font_negrita)
-        # LLAMADA CON LA NUEVA LÓGICA DE FILTRADO INTERNA
         crear_y_guardar_hoja(wb, df_original, HOJA_CAMPOS_USUARIO, COLUMNAS_CAMPOS_USUARIO, fill_encabezado, font_negrita)
         crear_y_guardar_hoja(wb, df_original, HOJA_PORCENTAJE_RECHAZO, COLUMNAS_RECHAZO, fill_encabezado, font_negrita)
 
@@ -604,111 +593,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         return True, output_buffer
 
     except KeyError as ke:
-        return False, f"❌ ERROR CRÍTICO DE ENCABEZADO: El script no encontró la columna {ke}. Verifique las hojas y encabezados del archivo original o externo. Asegúrese que el nombre de la hoja principal **{config['HOJA_PRINCIPAL']}** es correcto."
-    except IndexError as ie:
-        return False, f"❌ ERROR CRÍTICO DE ÍNDICE: Un índice de columna está fuera de rango. Mensaje: {ie}"
-    except ValueError as ve:
-        if 'sheetname' in str(ve) or 'Worksheet' in str(ve):
-            hojas_requeridas = [config['HOJA_PRINCIPAL'], 'Peso neto', HOJA_SECUENCIAS, HOJA_MANO_OBRA, 'Especif y Rutas']
-            return False, f"❌ Error de Lectura de Hoja: Una de las hojas clave ({', '.join(hojas_requeridas)}) no se encontró en los archivos cargados. Mensaje: {ve}"
-        return False, f"❌ Ocurrió un error inesperado de valor. Mensaje: {ve}"
-    except Exception as e:
-        return False, f"❌ Ocurrió un error inesperado. Mensaje: {e}"
-
-
-# --- INTERFAZ DE STREAMLIT (CON SELECTOR DE HORNO) ---
-
-def main():
-    """Configura la interfaz de usuario de Streamlit."""
-    st.set_page_config(
-        page_title="Automatización Hornos",
-        layout="centered",
-        initial_sidebar_state="auto"
-    )
-
-    st.title("⚙️ Automatización Verificación de datos - HORNOS")
-    st.markdown("Seleccione el Horno a procesar y luego cargue los archivos.")
-
-    # SELECCIÓN DEL HORNO
-    hornos_disponibles = list(HORNOS_CONFIG.keys())
-    selected_horno = st.radio(
-        "**1. Seleccione el Horno a Procesar:**",
-        hornos_disponibles,
-        index=hornos_disponibles.index('HORNO 5') if 'HORNO 5' in hornos_disponibles else 0,
-        horizontal=True,
-        key="horno_selector" 
-    )
-    st.markdown("---")
-    
-    config = HORNOS_CONFIG[selected_horno]
-    hoja_principal = config['HOJA_PRINCIPAL']
-    hoja_salida = config['HOJA_SALIDA']
-
-    st.subheader(f"2. Carga de Archivos para **{selected_horno}** (Hoja Principal: '{hoja_principal}')")
-    
-    col1, col2 = st.columns(2)
-
-    with col1:
-        file_original = st.file_uploader(
-            f"Carga la base de datos original",
-            type=['xlsx'],
-            help=f"El archivo debe contener las hojas: **{hoja_principal}**, 'Peso neto', '{HOJA_SECUENCIAS}' y '{HOJA_MANO_OBRA}'.",
-            key="file_original_uploader" 
-        )
-
-    with col2:
-        file_externa = st.file_uploader(
-            "Carga el archivo externo de toma de información.",
-            type=['xlsb', 'xlsx'],
-            help="El archivo que contiene la hoja 'Especif y Rutas'.",
-            key="file_externa_uploader" 
-        )
-
-    st.markdown("---")
-
-    # Botón de ejecución y manejo del proceso
-    if st.button(f"▶️ PROCESAR {selected_horno}", type="primary", use_container_width=True, key="process_button"):
-        if file_original is None or file_externa is None:
-            st.error("Por favor, cargue ambos archivos antes de procesar.")
-        else:
-            file_buffer_original = io.BytesIO(file_original.getvalue())
-            file_buffer_externa = io.BytesIO(file_externa.getvalue())
-
-            with st.spinner(f'Procesando datos y generando reporte para {selected_horno}...'):
-                success, resultado = automatizacion_final_diferencia_reforzada(
-                    file_buffer_original,
-                    file_buffer_externa,
-                    selected_horno
-                )
-
-            st.markdown("---")
-
-            if success:
-                st.success(f"✅ Proceso para **{selected_horno}** completado exitosamente.")
-
-                # Nombre de archivo de salida
-                base_name = file_original.name.split('.')[0]
-                if hoja_principal in base_name:
-                    file_name_output = base_name.replace(hoja_principal, '') + f"{hoja_salida}.xlsx"
-                else:
-                    file_name_output = f"{base_name}_{hoja_salida}.xlsx"
-                
-                st.download_button(
-                    label="⬇️ Descargar Archivo Procesado",
-                    data=resultado,
-                    file_name=file_name_output,
-                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                    use_container_width=True
-                )
-                st.info(f"El archivo descargado contiene todas las hojas originales más las 4 hojas de reporte: **{hoja_salida}**, '{HOJA_LSMW}', '{HOJA_CAMPOS_USUARIO}' y '{HOJA_PORCENTAJE_RECHAZO}'.")
-            else:
-                st.error("❌ Error en el Proceso")
-                st.warning(resultado)
-                st.write("Verifique el formato de las hojas y los nombres de las columnas en sus archivos.")
-
-if __name__ == "__main__":
-    main()
-
+        return False, f"❌ ERROR CRÍTICO DE ENCABEZADO: El script no encontró la columna {ke}. Verifique las hojas y encabezados del archivo original o externo. Asegúrese que el nombre de la hoja
 
 
 
