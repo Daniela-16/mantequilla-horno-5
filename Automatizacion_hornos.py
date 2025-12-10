@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-... (Encabezado y constantes omitidas por brevedad)
+Script de automatización para el procesamiento de datos de Hornos (Streamlit App).
+Incluye la vinculación de la columna 'Cant. base calculada' en la hoja 'lsmw' a 
+la hoja de salida procesada mediante una fórmula de Excel.
 """
 
 import pandas as pd
@@ -10,6 +12,7 @@ import io
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font
 from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl.utils import get_column_letter # Importación necesaria
 from collections import Counter
 import re
 from typing import Tuple, Union, Dict, Any
@@ -135,10 +138,11 @@ def filtrar_operaciones_impares_desde_31(df: pd.DataFrame) -> pd.DataFrame:
     return df_filtrado
 
 
-def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_destino: list, fill_encabezado: PatternFill, font_negrita: Font):
+def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_destino: list, fill_encabezado: PatternFill, font_negrita: Font, hoja_salida_name: str = None, source_cant_calculada_col_letter: str = None):
     """
     Crea una nueva hoja, la rellena con las columnas especificadas de df_base,
     y aplica formato de encabezado. Aplica filtro especial si es HOJA_CAMPOS_USUARIO.
+    Si es HOJA_LSMW, llena COL_CANT_CALCULADA con fórmulas de vinculación a la hoja de salida.
     """
     
     # Si la hoja a crear es la de campos de usuario, aplicamos el filtro
@@ -160,22 +164,46 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
     for col in columnas_destino:
         # Aseguramos que la columna exista en el DataFrame filtrado/base
         if col in df_a_guardar.columns:
-             df_nuevo[col] = df_a_guardar[col]
+            df_nuevo[col] = df_a_guardar[col]
         elif col == 'Indicador' and nombre_hoja == HOJA_CAMPOS_USUARIO:
-             df_nuevo[col] = 'x'
+            df_nuevo[col] = 'x'
         elif col == 'clase de control' and nombre_hoja == HOJA_CAMPOS_USUARIO:
-             df_nuevo[col] = 'ZPP0006'
+            df_nuevo[col] = 'ZPP0006'
+        # Si es la columna de fórmula en LSMW, la dejamos como NaN por ahora
+        elif col == COL_CANT_CALCULADA and nombre_hoja == HOJA_LSMW:
+             df_nuevo[col] = np.nan
         else:
             df_nuevo[col] = np.nan
-        
+            
     # Manejar el caso de DataFrame vacío (si el filtro no encuentra nada)
     if df_nuevo.empty and not df_a_guardar.empty:
-         st.error(f"Fallo al crear el DataFrame para la hoja '{nombre_hoja}'. Verifique los nombres de las columnas: {columnas_destino}")
-         df_nuevo = pd.DataFrame(columns=columnas_destino)
+        st.error(f"Fallo al crear el DataFrame para la hoja '{nombre_hoja}'. Verifique los nombres de las columnas: {columnas_destino}")
+        df_nuevo = pd.DataFrame(columns=columnas_destino)
 
-    # 2. Escribir el nuevo DataFrame en la hoja
+    # 2. Escribir el nuevo DataFrame en la hoja (Encabezado y Datos)
     for row in dataframe_to_rows(df_nuevo, header=True, index=False):
         ws.append(row)
+
+    # LÓGICA DE FÓRMULA DE VINCULACIÓN PARA LSMW
+    if nombre_hoja == HOJA_LSMW and source_cant_calculada_col_letter and hoja_salida_name:
+        try:
+            # Obtener el índice de la columna en la hoja LSMW
+            lsmw_cant_calculada_idx = df_nuevo.columns.get_loc(COL_CANT_CALCULADA) + 1
+            st.info(f"✍️ Llenando **'{COL_CANT_CALCULADA}'** en '{HOJA_LSMW}' con fórmulas de vinculación.")
+
+            # Iterar sobre las filas de datos (a partir de la fila 2)
+            for r_idx in range(len(df_nuevo)):
+                excel_row = r_idx + 2 # Fila de datos en Excel (Empieza en 2)
+                
+                # Fórmula: ='[Hoja_Procesada]'!$[Letra_Columna]$[Fila]
+                formula = f"='{hoja_salida_name}'!${source_cant_calculada_col_letter}{excel_row}"
+                
+                # Sobrescribir la celda con la fórmula
+                cell = ws.cell(row=excel_row, column=lsmw_cant_calculada_idx, value=formula)
+                cell.number_format = '#,##0.00' # Aplicar formato numérico
+                
+        except KeyError:
+             st.error(f"Error al aplicar fórmula en '{HOJA_LSMW}'. Columna '{COL_CANT_CALCULADA}' no encontrada.")
 
     # 3. Aplicar Formato a Encabezados Específicos
     indices_a_formatear = [
@@ -494,7 +522,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         cols_agrupamiento = [COL_PESO_NETO, COL_SECUENCIA]
         for col in cols_agrupamiento:
             if col not in df_original.columns:
-                 raise KeyError(f"Columna de agrupamiento '{col}' falta en el DataFrame. Se necesita para calcular atípicos.")
+                raise KeyError(f"Columna de agrupamiento '{col}' falta en el DataFrame. Se necesita para calcular atípicos.")
 
         df_original[COL_ATIPICO] = df_original.groupby(cols_agrupamiento, dropna=True).apply(
             detectar_y_marcar_cantidad_atipica
@@ -511,7 +539,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         
         # Si se creó la columna de concatenación, la eliminamos para el output final
         if COL_PSTTBJO_CONCATENADO in df_original.columns:
-             df_original = df_original.drop(columns=[COL_PSTTBJO_CONCATENADO])
+            df_original = df_original.drop(columns=[COL_PSTTBJO_CONCATENADO])
             
         # IMPORTANTE: Reaplicar el formato regional a COL_CANT_CALCULADA antes de guardar
         df_original[COL_CANT_CALCULADA] = df_original[COL_CANT_CALCULADA].apply(formato_excel_regional)
@@ -533,9 +561,9 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         # Escribir el DataFrame con valores y NaNs
         for row in dataframe_to_rows(df_original_final, header=True, index=False):
-             ws.append(row)
+            ws.append(row)
 
-        # --- APLICACIÓN DE FÓRMULA DE EXCEL EN COLUMNA 'diferencia' ---
+        # --- CÁLCULO DE ÍNDICES Y LETRAS PARA LA FÓRMULA DE EXCEL ---
         
         try:
             col_diferencia_idx = df_original_final.columns.get_loc(COL_DIFERENCIA) + 1 
@@ -547,9 +575,10 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             col_cant_base_idx = 9
             col_cant_calculada_idx = 10
         
-        from openpyxl.utils import get_column_letter
         col_base_letter = get_column_letter(col_cant_base_idx) 
         col_calculada_letter = get_column_letter(col_cant_calculada_idx) 
+        
+        # --- APLICACIÓN DE FÓRMULA DE EXCEL EN COLUMNA 'diferencia' ---
         
         st.info(f"✍️ Escribiendo la fórmula de Excel en la columna '{COL_DIFERENCIA}' ({get_column_letter(col_diferencia_idx)}).")
 
@@ -585,9 +614,23 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
                 cell_to_color.fill = fill_anomalia
 
         # --- CREACIÓN DE HOJAS ADICIONALES (El filtro se aplica dentro de crear_y_guardar_hoja) ---
-        # Se llama a crear_y_guardar_hoja, que ahora sabe qué hacer con Indicador/clase de control
-        crear_y_guardar_hoja(wb, df_original, HOJA_LSMW, COLUMNAS_LSMW, fill_encabezado, font_negrita)
+        
+        # 1. HOJA LSMW (CON VINCULACIÓN DE FÓRMULA)
+        crear_y_guardar_hoja(
+            wb, 
+            df_original, 
+            HOJA_LSMW, 
+            COLUMNAS_LSMW, 
+            fill_encabezado, 
+            font_negrita,
+            hoja_salida_name=HOJA_SALIDA, # Nombre de la hoja de origen
+            source_cant_calculada_col_letter=col_calculada_letter # Letra de la columna de origen
+        )
+        
+        # 2. HOJA CAMPOS DE USUARIO (CON FILTRO)
         crear_y_guardar_hoja(wb, df_original, HOJA_CAMPOS_USUARIO, COLUMNAS_CAMPOS_USUARIO, fill_encabezado, font_negrita)
+        
+        # 3. HOJA PORCENTAJE DE RECHAZO
         crear_y_guardar_hoja(wb, df_original, HOJA_PORCENTAJE_RECHAZO, COLUMNAS_RECHAZO, fill_encabezado, font_negrita)
 
         # Guardar el libro de trabajo modificado en un buffer de Bytes
