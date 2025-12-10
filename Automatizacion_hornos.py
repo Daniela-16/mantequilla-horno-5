@@ -7,7 +7,8 @@ Creado el Lunes 24 de Noviembre de 2025
 MODIFICACIONES SOLICITADAS:
 1. Cantidad Base (Hoja de origen): Usar el valor sin decimales.
 2. Cantidad Base Calculada (Archivo externo): Buscar la cantidad MAYOR para una clave.
-3. **NUEVO: Colocar la fórmula de Excel en la columna 'diferencia'.**
+3. **Colocar la fórmula de Excel en la columna 'diferencia'.**
+4. **NUEVO: En la hoja 'campos de usuario', filtrar por 'Op.' impar >= 31.**
 """
 
 import pandas as pd
@@ -44,8 +45,9 @@ COL_PSTTBJO_CONCATENADO = 'PstoTbjo_Concat' # Nombre temporal para la columna co
 # Nombres de hojas a crear (Comunes)
 HOJA_SECUENCIAS = 'Secuencias' # Esta hoja es común
 HOJA_LSMW = 'lsmw'
-HOJA_CAMPOS_USUARIO = 'campos de usuario'
+HOJA_CAMPOS_USUARIO = 'campos de usuario' # Hoja a la que se aplicará el nuevo filtro
 HOJA_PORCENTAJE_RECHAZO = '% de rechazo'
+COL_OP = 'Op.' # Constante para la columna de Operación
 
 # Columnas a resaltar en todas las hojas (solicitado por el usuario)
 COLUMNAS_A_RESALTAR = [
@@ -57,12 +59,12 @@ COLUMNAS_A_RESALTAR = [
 
 # Definición de columnas de salida (Comunes)
 COLUMNAS_LSMW = [
-    'PstoTbjo', 'GrpHRuta', 'CGH', 'Material', COL_CLAVE, 'Ce.', 'Op.',
+    'PstoTbjo', 'GrpHRuta', 'CGH', 'Material', COL_CLAVE, 'Ce.', COL_OP,
     COL_CANT_CALCULADA, 'ValPref', 'ValPref1', COL_MANO_OBRA, 'ValPref3',
     COL_SUMA_VALORES, 'ValPref5'
 ]
 COLUMNAS_CAMPOS_USUARIO = [
-    'GrpHRuta', 'CGH', 'Material', 'Ce.', 'Op.',
+    'GrpHRuta', 'CGH', 'Material', 'Ce.', COL_OP,
     'Indicador', 'clase de control',
     COL_NRO_PERSONAS, COL_NRO_MAQUINAS
 ]
@@ -116,11 +118,43 @@ def detectar_y_marcar_cantidad_atipica(grupo: pd.DataFrame) -> pd.Series:
 
     return es_diferente_a_moda
 
+def filtrar_operaciones_impares_desde_31(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Filtra el DataFrame para incluir solo filas donde 'Op.' es un número impar >= 31.
+    """
+    if COL_OP not in df.columns:
+        return df # Si la columna no existe, se devuelve sin filtrar (aunque debería existir)
+
+    # 1. Intentar convertir la columna 'Op.' a numérico, manejando errores (coercing)
+    df['Op_Num'] = pd.to_numeric(df[COL_OP], errors='coerce')
+    
+    # 2. Definir la condición: No es NaN AND es >= 31 AND es impar (módulo 2 es 1)
+    condicion_impar_desde_31 = (
+        df['Op_Num'].notna() & 
+        (df['Op_Num'] >= 31) & 
+        (df['Op_Num'] % 2 != 0)
+    )
+    
+    # 3. Aplicar el filtro y eliminar la columna temporal
+    df_filtrado = df[condicion_impar_desde_31].drop(columns=['Op_Num'], errors='ignore')
+    
+    return df_filtrado
+
+
 def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_destino: list, fill_encabezado: PatternFill, font_negrita: Font):
     """
     Crea una nueva hoja, la rellena con las columnas especificadas de df_base,
-    y aplica formato de encabezado a las columnas definidas en COLUMNAS_A_RESALTAR.
+    y aplica formato de encabezado. Aplica filtro especial si es HOJA_CAMPOS_USUARIO.
     """
+    
+    df_a_guardar = df_base.copy()
+
+    # --- NUEVA LÓGICA DE FILTRADO ---
+    if nombre_hoja == HOJA_CAMPOS_USUARIO:
+        df_a_guardar = filtrar_operaciones_impares_desde_31(df_a_guardar)
+        st.info(f"✨ **Aplicado filtro de '{COL_OP}' impar (>= 31)** a la hoja '{nombre_hoja}'.")
+    # ---------------------------------
+    
     if nombre_hoja in wb.sheetnames:
         del wb[nombre_hoja]
 
@@ -129,7 +163,7 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
     # 1. Crear el nuevo DataFrame con las columnas solicitadas
     df_nuevo = pd.DataFrame()
     for col in columnas_destino:
-        df_nuevo[col] = df_base[col] if col in df_base.columns else np.nan
+        df_nuevo[col] = df_a_guardar[col] if col in df_a_guardar.columns else np.nan
 
     # 2. Escribir el nuevo DataFrame en la hoja
     for row in dataframe_to_rows(df_nuevo, header=True, index=False):
@@ -252,7 +286,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
     
     # Orden final de las columnas en la hoja de salida
     FINAL_COL_ORDER = [
-        'GrpHRuta', 'CGH', 'Material', COL_CLAVE, 'Ce.', 'GrPlf', 'Op.',
+        'GrpHRuta', 'CGH', 'Material', COL_CLAVE, 'Ce.', 'GrPlf', COL_OP,
         COL_PORCENTAJE_RECHAZO, NOMBRE_COL_CANTIDAD_BASE, COL_CANT_CALCULADA,
         COL_DIFERENCIA, COL_PESO_NETO, COL_SECUENCIA, 'ValPref', 'ValPref1',
         'ValPref2', COL_MANO_OBRA, 'ValPref3', 'ValPref4', COL_SUMA_VALORES,
@@ -397,7 +431,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             df_mano_obra[col_idx] = pd.to_numeric(df_mano_obra[col_idx], errors='coerce') 
 
         # Filtro: Solo operaciones que terminan en '1'
-        COL_OP = 'Op.'
         op_col = df_original[COL_OP].astype(str).str.strip()
         indices_terminan_en_1 = op_col.str.endswith('1')
         psttbjo_filtrado = df_original.loc[indices_terminan_en_1, psttbjo_col_name].astype(str).str.strip() # Usamos el PstoTbjo original
@@ -557,8 +590,9 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
                 cell_to_color = ws.cell(row=r, column=col_cant_calculada_idx)
                 cell_to_color.fill = fill_anomalia
 
-        # --- CREACIÓN DE HOJAS ADICIONALES (Se pasan los estilos) ---
+        # --- CREACIÓN DE HOJAS ADICIONALES (Se pasan los estilos y se aplica el filtro) ---
         crear_y_guardar_hoja(wb, df_original, HOJA_LSMW, COLUMNAS_LSMW, fill_encabezado, font_negrita)
+        # LLAMADA CON LA NUEVA LÓGICA DE FILTRADO INTERNA
         crear_y_guardar_hoja(wb, df_original, HOJA_CAMPOS_USUARIO, COLUMNAS_CAMPOS_USUARIO, fill_encabezado, font_negrita)
         crear_y_guardar_hoja(wb, df_original, HOJA_PORCENTAJE_RECHAZO, COLUMNAS_RECHAZO, fill_encabezado, font_negrita)
 
