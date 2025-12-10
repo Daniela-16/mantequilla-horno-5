@@ -4,11 +4,10 @@ Creado el Lunes 24 de Noviembre de 2025
 
 @author: NCGNpracpim
 
-MODIFICACIONES IMPLEMENTADAS:
-1. COL_SECUENCIA, Mano de Obra (Personas/Máquinas) se calculan en Python (valores fijos).
-2. Fórmulas de Excel (BUSCARV, Suma, Resta) se usan para Cant. Calculada, Diferencia, Peso Neto y Rechazo.
-3. CORRECCIÓN DE ERROR (Log de Recuperación): Las fórmulas SOLO se escriben en la Hoja Principal de Salida.
-4. CORRECCIÓN DE ERROR (NameError): Corregida la variable 'IDX_RECHAZA_EXTERNA' a 'IDX_RECHAZO_EXTERNA'.
+MODIFICACIONES SOLICITADAS:
+1. Cantidad Base (Hoja de origen): Usar el valor sin decimales.
+2. Cantidad Base Calculada (Archivo externo): Buscar la cantidad MAYOR para una clave.
+3. **NUEVO: Colocar la fórmula de Excel en la columna 'diferencia'.**
 """
 
 import pandas as pd
@@ -38,15 +37,15 @@ COL_DIFERENCIA = 'diferencia'
 NOMBRE_COL_CANTIDAD_BASE = 'Cantidad base'
 NOMBRE_COL_CLAVE_EXTERNA = 'MaterialHorno'
 NOMBRE_COL_CANT_EXTERNA = 'CantidadBaseXHora'
+# COLUMNA CLAVE PARA LA NUEVA LÓGICA
 COL_LINEA = 'Linea'
-COL_PSTTBJO_CONCATENADO = 'PstoTbjo_Concat' 
+COL_PSTTBJO_CONCATENADO = 'PstoTbjo_Concat' # Nombre temporal para la columna concatenada
 
 # Nombres de hojas a crear (Comunes)
-HOJA_SECUENCIAS = 'Secuencias' 
+HOJA_SECUENCIAS = 'Secuencias' # Esta hoja es común
 HOJA_LSMW = 'lsmw'
 HOJA_CAMPOS_USUARIO = 'campos de usuario'
 HOJA_PORCENTAJE_RECHAZO = '% de rechazo'
-HOJA_EXTERNA = 'Especif y Rutas' 
 
 # Columnas a resaltar en todas las hojas (solicitado por el usuario)
 COLUMNAS_A_RESALTAR = [
@@ -93,43 +92,14 @@ HORNOS_CONFIG = {
     },
 }
 
-# Índices para el archivo original
-IDX_MATERIAL = 2 
-IDX_GRPLF = 4 
-IDX_CANTIDAD_BASE_LEIDA = 6 
-IDX_PSTTBJO = 18 
+# Índices para el archivo original (ASUMO QUE SON COMUNES)
+IDX_MATERIAL = 2 # Columna C
+IDX_GRPLF = 4 # Columna E
+IDX_CANTIDAD_BASE_LEIDA = 6 # Columna G
+IDX_PSTTBJO = 18 # Columna S (Puesto de Trabajo)
+# IDX_LINEA (Columna T) ya NO se usará para la carga, solo se usa para referenciar el nombre 'Linea'
 IDX_MATERIAL_PN = 0
-IDX_RECHAZO_EXTERNA = 28 
-
-# --- CONSTANTES DE REFERENCIA EXCEL EN LA HOJA DE SALIDA ---
-COL_MATERIAL_OUTPUT_EXCEL = 'C'
-COL_CLAVE_OUTPUT_EXCEL = 'D'
-COL_OP_OUTPUT_EXCEL = 'G'
-COL_CANT_BASE_OUTPUT_EXCEL = 'I' 
-COL_CANT_CALC_OUTPUT_EXCEL = 'J' 
-COL_DIFERENCIA_OUTPUT_EXCEL = 'K' 
-COL_PESO_NETO_OUTPUT_EXCEL = 'L' 
-COL_MANO_OBRA_OUTPUT_EXCEL = 'R' 
-COL_NRO_PERSONAS_OUTPUT_EXCEL = 'V'
-COL_NRO_MAQUINAS_OUTPUT_EXCEL = 'X'
-COL_PSTTBJO_OUTPUT_EXCEL = 'AB' 
-
-
-# --- CONSTANTES DE REFERENCIA EXCEL EN LAS HOJAS DE BÚSQUEDA ---
-RANGO_EXTERNO_BUSCARV = '$A:$AC'
-COL_CANT_EXTERNA_INDEX = 2 
-COL_RECHAZO_EXTERNA_INDEX = 29
-
-HOJA_PESO_NETO = 'Peso neto'
-RANGO_PN_BUSCARV = '$A:$C'
-COL_PESO_NETO_INDEX = 3
-
-HOJA_MANO_OBRA = 'Mano de obra'
-RANGO_MO_BUSCARV = '$A:$E'
-COL_TIEMPO_MO_INDEX = 3
-COL_CANTIDAD_PERSONAS_MO_INDEX = 5
-COL_CANTIDAD_MAQUINAS_MO_INDEX = 4
-
+IDX_RECHAZO_EXTERNA = 28
 
 # --- FUNCIONES DE LÓGICA ---
 
@@ -146,26 +116,20 @@ def detectar_y_marcar_cantidad_atipica(grupo: pd.DataFrame) -> pd.Series:
 
     return es_diferente_a_moda
 
-def crear_y_guardar_hoja_solo_valores(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_destino: list, fill_encabezado: PatternFill, font_negrita: Font):
+def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_destino: list, fill_encabezado: PatternFill, font_negrita: Font):
     """
-    Crea una nueva hoja, reemplazando cualquier fórmula de Excel con NaN antes de la escritura
-    para evitar errores de sintaxis en las hojas secundarias.
+    Crea una nueva hoja, la rellena con las columnas especificadas de df_base,
+    y aplica formato de encabezado a las columnas definidas en COLUMNAS_A_RESALTAR.
     """
     if nombre_hoja in wb.sheetnames:
         del wb[nombre_hoja]
 
     ws = wb.create_sheet(nombre_hoja)
-    
-    # 1. Crear el nuevo DataFrame con las columnas solicitadas y reemplazar fórmulas por NaN
+
+    # 1. Crear el nuevo DataFrame con las columnas solicitadas
     df_nuevo = pd.DataFrame()
     for col in columnas_destino:
-        data = df_base[col] if col in df_base.columns else np.nan
-        
-        if isinstance(data, pd.Series):
-            # Reemplazar cualquier valor que comience con '=' (fórmula) por NaN
-            data = data.apply(lambda x: np.nan if isinstance(x, str) and str(x).startswith('=') else x)
-            
-        df_nuevo[col] = data
+        df_nuevo[col] = df_base[col] if col in df_base.columns else np.nan
 
     # 2. Escribir el nuevo DataFrame en la hoja
     for row in dataframe_to_rows(df_nuevo, header=True, index=False):
@@ -173,8 +137,8 @@ def crear_y_guardar_hoja_solo_valores(wb, df_base: pd.DataFrame, nombre_hoja: st
 
     # 3. Aplicar Formato a Encabezados Específicos
     indices_a_formatear = [
-        df_nuevo.columns.get_loc(col) + 1  
-        for col in COLUMNAS_A_RESALTAR  
+        df_nuevo.columns.get_loc(col) + 1 
+        for col in COLUMNAS_A_RESALTAR 
         if col in df_nuevo.columns
     ]
 
@@ -203,9 +167,11 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     hoja_principal = config['HOJA_PRINCIPAL']
 
     # --- 1. Lectura de Archivo Original ---
+    # Leer encabezados de la hoja principal
     cols_original = pd.read_excel(file_original, sheet_name=hoja_principal, nrows=0).columns.tolist()
     file_original.seek(0)
     
+    # Leer encabezados de Peso neto
     cols_pn = pd.read_excel(file_original, sheet_name='Peso neto', nrows=0).columns.tolist()
     file_original.seek(0)
     
@@ -219,18 +185,22 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
         'hoja_principal': hoja_principal
     }
 
+    # Definir las columnas a leer de la hoja principal: Leer TODAS las columnas para no depender del índice 19 (Linea)
     df_original = pd.read_excel(
         file_original, 
         sheet_name=hoja_principal, 
         dtype={col_names['cant_base_leida']: str},
+        # usecols=None lee todas las columnas automáticamente
     )
     file_original.seek(0)
     
-    # Renombrar columnas clave si es necesario
+    # Renombrar la columna de cantidad base si es necesario
     if col_names['cant_base_leida'] != NOMBRE_COL_CANTIDAD_BASE:
         df_original = df_original.rename(columns={col_names['cant_base_leida']: NOMBRE_COL_CANTIDAD_BASE})
         col_names['cant_base_leida'] = NOMBRE_COL_CANTIDAD_BASE
     
+    # Renombrar otras columnas clave si el nombre de la variable no coincide con el nombre de la columna
+    # Esto es vital porque el código asume que el nombre de la columna es igual a la constante:
     if col_names['material'] != 'Material':
         df_original.rename(columns={col_names['material']: 'Material'}, inplace=True)
         col_names['material'] = 'Material'
@@ -239,6 +209,7 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
         df_original.rename(columns={col_names['psttbjo']: 'PstoTbjo'}, inplace=True)
         col_names['psttbjo'] = 'PstoTbjo'
 
+    # Cargar DataFrames adicionales
     df_peso_neto = pd.read_excel(file_original, sheet_name='Peso neto')
     file_original.seek(0)
 
@@ -256,17 +227,15 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     file_original.seek(0)
 
     # --- 2. Lectura de Archivo Externo ---
-    cols_externo = pd.read_excel(file_info_externa, sheet_name=HOJA_EXTERNA, nrows=0).columns.tolist()
+    cols_externo = pd.read_excel(file_info_externa, sheet_name='Especif y Rutas', nrows=0).columns.tolist()
     file_info_externa.seek(0)
 
-    # <<<<<<<<<<<<<<<<< CORRECCIÓN DEL ERROR DE NOMBRE AQUÍ >>>>>>>>>>>>>>>>>>
-    # Corregido: IDX_RECHAZA_EXTERNA cambiado a IDX_RECHAZO_EXTERNA
     nombre_col_rechazo_externa = cols_externo[IDX_RECHAZO_EXTERNA] if IDX_RECHAZO_EXTERNA < len(cols_externo) else 'Columna AC'
-    
     cols_a_leer_externo = [NOMBRE_COL_CLAVE_EXTERNA, NOMBRE_COL_CANT_EXTERNA, nombre_col_rechazo_externa]
-    df_externo = pd.read_excel(file_info_externa, sheet_name=HOJA_EXTERNA, header=0, usecols=cols_a_leer_externo)
+    df_externo = pd.read_excel(file_info_externa, sheet_name='Especif y Rutas', header=0, usecols=cols_a_leer_externo)
     file_info_externa.seek(0)
 
+    # Guardar nombres de columnas externas leídas
     col_names['nombre_col_rechazo_externa'] = nombre_col_rechazo_externa
 
     return df_original, df_externo, df_peso_neto, df_secuencias, df_mano_obra, col_names
@@ -275,12 +244,13 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
 
 def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_info_externa: io.BytesIO, nombre_horno: str) -> Tuple[bool, Union[str, io.BytesIO]]:
     """
-    Ejecuta toda la lógica de procesamiento, insertando fórmulas de Excel.
+    Ejecuta toda la lógica de procesamiento.
     """
     
     config = HORNOS_CONFIG[nombre_horno]
     HOJA_SALIDA = config['HOJA_SALIDA']
     
+    # Orden final de las columnas en la hoja de salida
     FINAL_COL_ORDER = [
         'GrpHRuta', 'CGH', 'Material', COL_CLAVE, 'Ce.', 'GrPlf', 'Op.',
         COL_PORCENTAJE_RECHAZO, NOMBRE_COL_CANTIDAD_BASE, COL_CANT_CALCULADA,
@@ -297,19 +267,23 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         'Unnamed: 31', 'I'
     ]
     
+    COLUMNAS_A_SUMAR = ['ValPref', 'ValPref1', COL_MANO_OBRA, 'ValPref3']
+
     try:
         st.write("---")
         st.subheader(f"Preparando datos para **{nombre_horno}**... 📊")
 
-        # 1. Carga y limpieza de datos
+        # 1. Carga y limpieza de datos (Se pasa el nombre del horno)
         df_original, df_externo, df_peso_neto, df_secuencias, df_mano_obra, col_names = cargar_y_limpiar_datos(file_original, file_info_externa, nombre_horno)
         
+        # Asegurar nombres de columnas clave que ya fueron renombradas o detectadas en cargar_y_limpiar_datos
         material_col_name = 'Material'
         grplf_col_name = col_names['cols_original'][IDX_GRPLF]
-        psttbjo_col_name = 'PstoTbjo' 
+        psttbjo_col_name = 'PstoTbjo' # Ya renombrado/detectado como 'PstoTbjo'
 
         # 2. Creación de la Clave de Búsqueda
         def limpiar_col(df: pd.DataFrame, col_name: str) -> pd.Series:
+            """Limpia (quita caracteres no alfanuméricos) la columna especificada."""
             if col_name not in df.columns:
                 raise KeyError(f"Columna '{col_name}' no encontrada en la hoja '{col_names['hoja_principal']}'.")
             return df[col_name].astype(str).str.strip().str.replace(r'\W+', '', regex=True)
@@ -323,16 +297,30 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         df_externo[NOMBRE_COL_CLAVE_EXTERNA] = df_externo[NOMBRE_COL_CLAVE_EXTERNA].astype(str).str.strip().str.replace(r'\W+', '', regex=True)
 
         # --- LÓGICA DE CONCATENACIÓN Y DETERMINACIÓN DE COLUMNA DE BÚSQUEDA ---
+        
         columna_para_secuencia = psttbjo_col_name 
+        
+        # 1. Verificar si la columna 'Linea' existe por nombre
         linea_existe = COL_LINEA in df_original.columns 
 
-        if linea_existe and df_original[COL_LINEA].astype(str).str.lower().str.contains(r'[a-z0-9]').any():
-            st.info(f"⚠️ **Detectada la columna '{COL_LINEA}'**. Aplicando lógica de concatenación **PstoTbjo + Línea** para búsqueda de secuencia.")
+        if linea_existe:
+            linea_data = df_original[COL_LINEA]
+            linea_limpia = linea_data.astype(str).str.strip()
             
-            linea_limpia = df_original[COL_LINEA].astype(str).str.strip()
+            # Verificar si la columna 'Linea' contiene al menos un valor relevante (no vacío/nan)
+            linea_existe_y_es_relevante = linea_limpia.str.lower().str.contains(r'[a-z0-9]').any()
+        else:
+            linea_existe_y_es_relevante = False
+        
+        
+        if linea_existe_y_es_relevante:
+            st.info(f"⚠️ **Detectada la columna '{COL_LINEA}'**. Aplicando lógica de concatenación **PstoTbjo + Línea** para búsqueda de secuencia en {nombre_horno}.")
+            
             psttbjo_limpio = df_original[psttbjo_col_name].astype(str).str.strip()
             
+            # Crear la columna concatenada: PstoTbjo + Línea si Línea tiene valor, sino solo PstoTbjo
             df_original[COL_PSTTBJO_CONCATENADO] = np.where(
+                # La condición usa una serie de booleanos para detectar celdas vacías/nulas
                 linea_limpia.str.lower().isin(['nan', 'none', '']), 
                 psttbjo_limpio,
                 psttbjo_limpio + linea_limpia
@@ -342,50 +330,81 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             st.info("✅ **Columna 'Linea' no detectada o vacía**. Usando solo el Puesto de Trabajo para la búsqueda de secuencia.")
         # ------------------------------------------------------------------
 
-        # Obtener los índices de fila para la construcción de fórmulas de Excel
-        indices_fila_excel = range(2, len(df_original) + 2)
+
+        # 3. Mapeo de Cantidad Calculada, Rechazo y Peso Neto
         
-        # --- 3. Mapeo Temporal de Valores para Cálculo de Atípicos y Secuencia ---
-        
-        # Función auxiliar para mapeo de Cantidad Máxima (Necesaria solo para Atípicos)
-        def mapear_con_maxima_cantidad_temp(df_origen: pd.DataFrame, df_externo: pd.DataFrame, col_clave_origen: str, col_clave_externa: str, col_cantidad_externa: str, col_destino: str):
+        # Función auxiliar para mapeo simple ('first' dupe)
+        def mapear_columna(df_mapeo: pd.DataFrame, col_indice: str, col_destino: str, col_clave: str, nombre_col_mapa: str):
+            """Realiza el mapeo de una columna externa al DataFrame principal (usa 'first')."""
+            mapa = df_mapeo.drop_duplicates(subset=[col_clave], keep='first').set_index(col_clave)[nombre_col_mapa]
+            df_original[col_destino] = df_original[col_indice].map(mapa)
+
+
+        # >>> FUNCIÓN PARA BUSCAR LA CANTIDAD MÁXIMA (COL_CANT_CALCULADA) <<<
+        def mapear_con_maxima_cantidad(df_origen: pd.DataFrame, df_externo: pd.DataFrame, col_clave_origen: str, col_clave_externa: str, col_cantidad_externa: str, col_destino: str):
+            """
+            Realiza el mapeo de la Cantidad Base Calculada. Si hay múltiples coincidencias
+            para la clave, selecciona el registro con el valor máximo en col_cantidad_externa.
+            """
+            # 1. Asegurar la columna de cantidad como numérica
             df_externo[col_cantidad_externa] = pd.to_numeric(df_externo[col_cantidad_externa], errors='coerce')
+            
+            # 2. Encontrar la Cantidad Máxima por Clave (Ordena descendente y toma el primero)
             df_mapa = (
                 df_externo.sort_values(by=col_cantidad_externa, ascending=False)
                 .drop_duplicates(subset=[col_clave_externa], keep='first')
                 .set_index(col_clave_externa)[col_cantidad_externa]
             )
-            df_origen[col_destino] = df_origen[col_clave_origen].map(df_mapa)
             
-        def mapear_columna_temp(df_mapeo: pd.DataFrame, col_indice: str, col_destino: str, col_clave: str, nombre_col_mapa: str):
-             mapa = df_mapeo.drop_duplicates(subset=[col_clave], keep='first').set_index(col_clave)[nombre_col_mapa]
-             df_original[col_destino] = df_original[col_indice].map(mapa)
-
-        # 3.1. Mapeo de Cantidad Calculada (Temporal, usando MAX para Atípicos)
-        mapear_con_maxima_cantidad_temp(
-            df_original, df_externo, COL_CLAVE, NOMBRE_COL_CLAVE_EXTERNA, 
-            NOMBRE_COL_CANT_EXTERNA, COL_CANT_CALCULADA
-        )
+            # 3. Aplicar el mapeo al DataFrame de origen
+            df_origen[col_destino] = df_origen[col_clave_origen].map(df_mapa)
         
-        # 3.3. Mapeo de Peso Neto (Temporal para Atípicos)
-        mapear_columna_temp(df_peso_neto, material_col_name, COL_PESO_NETO, col_names['material_pn'], col_names['peso_neto_valor'])
+        st.info(f"🔄 Aplicando nueva lógica: **'{COL_CANT_CALCULADA}'** se mapea con el **valor máximo** del archivo externo.")
+        
+        # 3.1. Mapeo de Cantidad Calculada (usando la nueva lógica de MAX)
+        mapear_con_maxima_cantidad(
+            df_original, 
+            df_externo, 
+            COL_CLAVE, 
+            NOMBRE_COL_CLAVE_EXTERNA, 
+            NOMBRE_COL_CANT_EXTERNA, 
+            COL_CANT_CALCULADA
+        )
 
-        # 5. CÁLCULO DE MANO DE OBRA, PERSONAS Y MÁQUINAS (LÓGICA PYTHON - VALOR FIJO)
-        COL_PSTTBJO_MO = 0  
-        COL_TIEMPO_MO = 2   
+        # 3.2. Mapeo de Porcentaje de Rechazo (usa la lógica original, 'first' dupe)
+        mapear_columna(df_externo, COL_CLAVE, COL_PORCENTAJE_RECHAZO, NOMBRE_COL_CLAVE_EXTERNA, col_names['nombre_col_rechazo_externa'])
+        
+        # 3.3. Mapeo de Peso Neto
+        mapear_columna(df_peso_neto, material_col_name, COL_PESO_NETO, col_names['material_pn'], col_names['peso_neto_valor'])
+
+        # 4. Cálculo de Secuencia (Usando la columna determinada)
+        st.info(f"🔄 Buscando secuencia para todas las filas usando la columna '{columna_para_secuencia}'.")
+
+        df_original[COL_SECUENCIA] = df_original[columna_para_secuencia].astype(str).str.strip().apply(
+            lambda x: obtener_secuencia(x, df_secuencias)
+        )
+
+        # 5. Cálculo de Mano de Obra, Personas y Máquinas
+        # Índices de df_mano_obra (A=0, C=2, D=3, E=4)
+        COL_PSTTBJO_MO = 0 
+        COL_TIEMPO_MO = 2 
         COL_CANTIDAD_MAQUINAS_MO = 3 
         COL_CANTIDAD_PERSONAS_MO = 4 
 
+        # Limpieza de datos en df_mano_obra
         df_mano_obra[COL_PSTTBJO_MO] = df_mano_obra[COL_PSTTBJO_MO].astype(str).str.strip()
         for col_idx in [COL_TIEMPO_MO, COL_CANTIDAD_MAQUINAS_MO, COL_CANTIDAD_PERSONAS_MO]:
-            df_mano_obra[col_idx] = pd.to_numeric(df_mano_obra[col_idx], errors='coerce')  
+            df_mano_obra[col_idx] = pd.to_numeric(df_mano_obra[col_idx], errors='coerce') 
 
+        # Filtro: Solo operaciones que terminan en '1'
         COL_OP = 'Op.'
         op_col = df_original[COL_OP].astype(str).str.strip()
         indices_terminan_en_1 = op_col.str.endswith('1')
-        psttbjo_filtrado = df_original.loc[indices_terminan_en_1, psttbjo_col_name].astype(str).str.strip()
+        psttbjo_filtrado = df_original.loc[indices_terminan_en_1, psttbjo_col_name].astype(str).str.strip() # Usamos el PstoTbjo original
 
+        # Mapeos para Mano de Obra, Personas y Máquinas
         def mapear_mo_filtros(col_origen: int, col_destino: str):
+            """Genera el mapa y aplica el mapeo solo a las filas filtradas."""
             mapa = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MO], keep='first').set_index(COL_PSTTBJO_MO)[col_origen]
             df_original.loc[indices_terminan_en_1, col_destino] = psttbjo_filtrado.map(mapa)
 
@@ -402,105 +421,121 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         # 5.3. Número de Máquinas (Columna D)
         df_original[COL_NRO_MAQUINAS] = np.nan
         mapear_mo_filtros(COL_CANTIDAD_MAQUINAS_MO, COL_NRO_MAQUINAS)
-        
-        # 4. Cálculo de Secuencia (VALOR FIJO CALCULADO EN PYTHON)
-        df_original[COL_SECUENCIA] = df_original[columna_para_secuencia].astype(str).str.strip().apply(
-            lambda x: obtener_secuencia(x, df_secuencias)
-        )
 
-        # 7.5 CÁLCULO DE ATÍPICOS 
+        # 6. Suma de Valores y formato
+        def formato_excel_regional_suma(x):
+            """Aplica formato de coma decimal para Excel y maneja NaN/cero."""
+            # Asegura el formato con dos decimales y usa coma como separador decimal
+            return f"{x:.2f}".replace('.', ',') if pd.notna(x) and x != 0.0 else np.nan
+
+        df_temp_sum = df_original[COLUMNAS_A_SUMAR].apply(lambda col: pd.to_numeric(col, errors='coerce'))
+        df_original[COL_SUMA_VALORES] = df_temp_sum.sum(axis=1, skipna=True).apply(formato_excel_regional_suma)
+
+        # 7. Cálculo de Diferencia y Atípicos
+        
+        # MODIFICACIÓN CLAVE: Coger Cantidad base (H) sin decimales.
+        st.info("📐 Cantidad base (Columna de origen) se está truncando a entero para el cálculo de la diferencia.")
+        H_str = df_original[NOMBRE_COL_CANTIDAD_BASE].astype(str).str.replace(',', '.', regex=False).str.strip()
+        H_float = pd.to_numeric(H_str, errors='coerce')
+        # Truncar (eliminar decimales)
+        H_trunc = np.trunc(H_float)  # Lo usamos para el cálculo de atípicos y para formatear la columna I
+        
+        I = pd.to_numeric(df_original[COL_CANT_CALCULADA], errors='coerce')
+
+        # Cálculo de diferencia SÓLO para determinar el atípico y formatear la columna I, no para llenar COL_DIFERENCIA
+        diferencia_calculada = H_trunc.fillna(0) - I.fillna(0) # Se mantiene para la lógica de Atípicos
+
+        def formato_excel_regional(x):
+            """Aplica formato de coma decimal para Excel."""
+            # Este formato es para la columna Cant. base calculada
+            return f"{x:.2f}".replace('.', ',') if pd.notna(x) else np.nan
+        
+        def formato_sin_decimales(x):
+            """Formato para la Cantidad base de origen (entero)"""
+            # Usar .0f para asegurar que no haya decimales
+            return f"{x:.0f}".replace('.', ',') if pd.notna(x) else np.nan
+
+        # Aplicar el formato de sin decimales a la columna de origen (Columna I)
+        df_original[NOMBRE_COL_CANTIDAD_BASE] = H_trunc.apply(formato_sin_decimales)
+
+        # Rellenar la columna de diferencia con NaN; la fórmula se añadirá después con openpyxl.
+        df_original[COL_DIFERENCIA] = np.nan 
+
+        # Atípicos
+        df_original[COL_CANT_CALCULADA] = I # I es float, se usa para el cálculo de atípicos
         cols_agrupamiento = [COL_PESO_NETO, COL_SECUENCIA]
-        df_original[COL_PESO_NETO] = pd.to_numeric(df_original[COL_PESO_NETO], errors='coerce')
-        df_original[COL_SECUENCIA] = pd.to_numeric(df_original[COL_SECUENCIA], errors='coerce')
+        for col in cols_agrupamiento:
+            if col not in df_original.columns:
+                 # Esto solo debería ocurrir si COL_PESO_NETO falló en el mapeo
+                 raise KeyError(f"Columna de agrupamiento '{col}' falta en el DataFrame. Se necesita para calcular atípicos.")
 
         df_original[COL_ATIPICO] = df_original.groupby(cols_agrupamiento, dropna=True).apply(
             detectar_y_marcar_cantidad_atipica
         ).reset_index(level=list(range(len(cols_agrupamiento))), drop=True).fillna(False)
-        
-        # --------------------------------------------------------------------------
-        # REEMPLAZO DE COLUMNAS POR FÓRMULAS DE EXCEL (solo en Hoja de Salida)
-        # --------------------------------------------------------------------------
 
-        # --- 3. Fórmulas BUSCARV ---
-        
-        # 3.1. COL_CANT_CALCULADA (Fórmula)
-        formulas_cant_calc = [
-            f'=BUSCARV({COL_CLAVE_OUTPUT_EXCEL}{r};\'{HOJA_EXTERNA}\'!{RANGO_EXTERNO_BUSCARV};{COL_CANT_EXTERNA_INDEX};FALSO)' 
-            for r in indices_fila_excel
-        ]
-        df_original[COL_CANT_CALCULADA] = formulas_cant_calc
-        
-        # 3.2. COL_PORCENTAJE_RECHAZO (Fórmula)
-        formulas_rechazo = [
-            f'=BUSCARV({COL_CLAVE_OUTPUT_EXCEL}{r};\'{HOJA_EXTERNA}\'!{RANGO_EXTERNO_BUSCARV};{COL_RECHAZO_EXTERNA_INDEX};FALSO)'
-            for r in indices_fila_excel
-        ]
-        df_original[COL_PORCENTAJE_RECHAZO] = formulas_rechazo
 
-        # 3.3. COL_PESO_NETO (Fórmula)
-        formulas_peso_neto = [
-            f'=BUSCARV({COL_MATERIAL_OUTPUT_EXCEL}{r};\'{HOJA_PESO_NETO}\'!{RANGO_PN_BUSCARV};{COL_PESO_NETO_INDEX};FALSO)'
-            for r in indices_fila_excel
-        ]
-        df_original[COL_PESO_NETO] = formulas_peso_neto
-
-        # --- 6. Suma de Valores (Fórmula SUMA) ---
-        formulas_suma = [f'=O{r}+P{r}+R{r}+S{r}' for r in indices_fila_excel]
-        df_original[COL_SUMA_VALORES] = formulas_suma
-        
-        # --- 7. Cálculo de Diferencia (Fórmula Resta) ---
-        
-        # Truncado de Cantidad base (Columna I) en Python (valor fijo formateado)
-        H_str = df_original[NOMBRE_COL_CANTIDAD_BASE].astype(str).str.replace(',', '.', regex=False).str.strip()
-        H_float = pd.to_numeric(H_str, errors='coerce')
-        H_trunc = np.trunc(H_float)
-        
-        def formato_sin_decimales_str(x):
-            return f"{x:.0f}".replace('.', ',') if pd.notna(x) and pd.api.types.is_number(x) else np.nan
-
-        df_original[NOMBRE_COL_CANTIDAD_BASE] = H_trunc.apply(formato_sin_decimales_str)
-        
-        # Fórmula de Diferencia: Cantidad base (I) - Cant. base calculada (J)
-        formulas_diferencia = [f'={COL_CANT_BASE_OUTPUT_EXCEL}{r}-{COL_CANT_CALC_OUTPUT_EXCEL}{r}' for r in indices_fila_excel]
-        df_original[COL_DIFERENCIA] = formulas_diferencia
-        
         # 8. Reconstrucción Final y Guardado con Formato
-        
-        # Formato de valores fijos de Python
-        def formato_excel_regional_2_dec(x):
-             return f"{x:.2f}".replace('.', ',') if pd.notna(x) and pd.api.types.is_number(x) else x
-        
-        # Aplicar formato de 2 decimales a Mano de Obra (Valor fijo)
-        df_original[COL_MANO_OBRA] = df_original[COL_MANO_OBRA].apply(formato_excel_regional_2_dec)
-        
-        # Aplicar formato de entero a Personas y Máquinas (Valores fijos)
-        df_original[COL_NRO_PERSONAS] = df_original[COL_NRO_PERSONAS].apply(lambda x: formato_sin_decimales_str(x))
-        df_original[COL_NRO_MAQUINAS] = df_original[COL_NRO_MAQUINAS].apply(lambda x: formato_sin_decimales_str(x))
-
+        # Si se creó la columna de concatenación, la eliminamos para el output final
         if COL_PSTTBJO_CONCATENADO in df_original.columns:
              df_original = df_original.drop(columns=[COL_PSTTBJO_CONCATENADO])
+            
+        # IMPORTANTE: Reaplicar el formato regional a COL_CANT_CALCULADA antes de guardar
+        df_original[COL_CANT_CALCULADA] = df_original[COL_CANT_CALCULADA].apply(formato_excel_regional)
 
         df_original_final = df_original.reindex(columns=[c for c in FINAL_COL_ORDER if c in df_original.columns])
 
+        # Cargar el libro de trabajo desde el buffer (Para mantener las hojas originales)
         file_original.seek(0)
         wb = load_workbook(file_original)
-        
+
         # Definición de Estilos
-        fill_anomalia = PatternFill(start_color='FFA500', end_color='FFA500', fill_type='solid') 
-        fill_encabezado = PatternFill(start_color='DDEBF7', end_color='DDEBF7', fill_type='solid') 
+        fill_anomalia = PatternFill(start_color='FFA500', end_color='FFA500', fill_type='solid') # Naranja (Atípicos)
+        fill_encabezado = PatternFill(start_color='DDEBF7', end_color='DDEBF7', fill_type='solid') # Azul claro (Calculadas)
         font_negrita = Font(bold=True)
 
-        # Crear y escribir la hoja principal procesada (AQUÍ SE ESCRIBEN LAS FÓRMULAS)
+        # Crear y escribir la hoja principal procesada
         if HOJA_SALIDA in wb.sheetnames: del wb[HOJA_SALIDA]
         ws = wb.create_sheet(HOJA_SALIDA)
 
+        # Escribir el DataFrame con valores y NaNs
         for row in dataframe_to_rows(df_original_final, header=True, index=False):
-            ws.append(row)
+             ws.append(row)
 
-        # 8.2 APLICACIÓN DE FORMATOS Y ATÍPICOS
-        COLUMNAS_ENCABEZADO_FORMATO = [
-            COL_CANT_CALCULADA, NOMBRE_COL_CANTIDAD_BASE, COL_DIFERENCIA, COL_SUMA_VALORES
-        ] + COLUMNAS_A_RESALTAR 
+        # --- APLICACIÓN DE FÓRMULA DE EXCEL EN COLUMNA 'diferencia' ---
+        # Determinar el índice de la columna de Diferencia (debe ser K, posición 11)
+        try:
+            col_diferencia_idx = df_original_final.columns.get_loc(COL_DIFERENCIA) + 1 # +1 (openpyxl es 1-based)
+            col_cant_base_idx = df_original_final.columns.get_loc(NOMBRE_COL_CANTIDAD_BASE) + 1 # Columna I
+            col_cant_calculada_idx = df_original_final.columns.get_loc(COL_CANT_CALCULADA) + 1 # Columna J
+        except KeyError:
+            # Fallback si el orden o el nombre de columna en el DataFrame final ha cambiado
+            st.warning("No se pudo determinar la posición exacta de las columnas de diferencia. Asumiendo I=9, J=10, K=11.")
+            col_diferencia_idx = 11
+            col_cant_base_idx = 9
+            col_cant_calculada_idx = 10
+        
+        # Convertir el índice a la letra de columna de Excel
+        from openpyxl.utils import get_column_letter
+        col_base_letter = get_column_letter(col_cant_base_idx) # I
+        col_calculada_letter = get_column_letter(col_cant_calculada_idx) # J
+        
+        st.info(f"✍️ Escribiendo la fórmula de Excel en la columna '{COL_DIFERENCIA}' ({get_column_letter(col_diferencia_idx)}).")
+
+        # Rango de filas (desde la fila 2 hasta el final)
+        for r in range(2, len(df_original_final) + 2):
+            # Fórmula: =REDONDEAR.MENOS(I#; 0) - J# (Simula TRUNCAR(I#) - J#)
+            # Nota: Usamos la coma ',' como separador de argumentos para compatibilidad general con openpyxl/Excel
+            formula = f'=REDONDEAR.MENOS({col_base_letter}{r}, 0) - {col_calculada_letter}{r}'
+            
+            # Escribir la fórmula en la celda
+            cell = ws.cell(row=r, column=col_diferencia_idx, value=formula)
+            
+            # Aplicar formato de número a dos decimales
+            cell.number_format = '#,##0.00'
+
+
+        # 4. APLICACIÓN DE FORMATOS EN HOJA PRINCIPAL
+        COLUMNAS_ENCABEZADO_FORMATO = [COL_CANT_CALCULADA, NOMBRE_COL_CANTIDAD_BASE] + COLUMNAS_A_RESALTAR
 
         indices_encabezado = [
             df_original_final.columns.get_loc(col_name) + 1 
@@ -514,47 +549,18 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             header_cell.font = font_negrita
 
         # Aplicar el sombreado a los datos de 'Cant. base calculada' (naranja para atípicos)
-        try:
-            col_cant_calculada_idx = df_original_final.columns.get_loc(COL_CANT_CALCULADA) + 1
-        except KeyError:
-            col_cant_calculada_idx = 10 
+        # Usamos el índice J (10) o el que se haya detectado
+        col_cant_calculada_idx = col_cant_calculada_idx 
 
         for r in range(2, len(df_original) + 2):
             if df_original.iloc[r-2][COL_ATIPICO]:
                 cell_to_color = ws.cell(row=r, column=col_cant_calculada_idx)
                 cell_to_color.fill = fill_anomalia
-                
-        # 8.3 APLICACIÓN DE FORMATO NUMÉRICO A LAS COLUMNAS CON FÓRMULAS Y VALORES FIJOS
-        
-        EXCEL_FORMATO_2_DECIMALES = '#,##0.00' 
-        EXCEL_FORMATO_PORCENTAJE = '0.00%'
-        EXCEL_FORMATO_ENTERO = '0'
 
-        columnas_a_formatear = {
-            # Columnas con FÓRMULA
-            COL_CANT_CALCULADA: EXCEL_FORMATO_2_DECIMALES, 
-            COL_DIFERENCIA: EXCEL_FORMATO_2_DECIMALES,
-            COL_SUMA_VALORES: EXCEL_FORMATO_2_DECIMALES,
-            COL_PESO_NETO: EXCEL_FORMATO_2_DECIMALES,
-            COL_PORCENTAJE_RECHAZO: EXCEL_FORMATO_PORCENTAJE,
-            # Columnas con VALOR FIJO (Calculado en Python)
-            COL_MANO_OBRA: EXCEL_FORMATO_2_DECIMALES, 
-            COL_SECUENCIA: EXCEL_FORMATO_ENTERO,
-            COL_NRO_PERSONAS: EXCEL_FORMATO_ENTERO,
-            COL_NRO_MAQUINAS: EXCEL_FORMATO_ENTERO,
-        }
-        
-        for col_name, number_format in columnas_a_formatear.items():
-            if col_name in df_original_final.columns:
-                col_idx = df_original_final.columns.get_loc(col_name) + 1
-                for r in range(2, len(df_original) + 2):
-                    cell = ws.cell(row=r, column=col_idx)
-                    cell.number_format = number_format
-                    
-        # --- CREACIÓN DE HOJAS ADICIONALES (SOLO VALORES para evitar el error de Excel) ---
-        crear_y_guardar_hoja_solo_valores(wb, df_original, HOJA_LSMW, COLUMNAS_LSMW, fill_encabezado, font_negrita)
-        crear_y_guardar_hoja_solo_valores(wb, df_original, HOJA_CAMPOS_USUARIO, COLUMNAS_CAMPOS_USUARIO, fill_encabezado, font_negrita)
-        crear_y_guardar_hoja_solo_valores(wb, df_original, HOJA_PORCENTAJE_RECHAZO, COLUMNAS_RECHAZO, fill_encabezado, font_negrita)
+        # --- CREACIÓN DE HOJAS ADICIONALES (Se pasan los estilos) ---
+        crear_y_guardar_hoja(wb, df_original, HOJA_LSMW, COLUMNAS_LSMW, fill_encabezado, font_negrita)
+        crear_y_guardar_hoja(wb, df_original, HOJA_CAMPOS_USUARIO, COLUMNAS_CAMPOS_USUARIO, fill_encabezado, font_negrita)
+        crear_y_guardar_hoja(wb, df_original, HOJA_PORCENTAJE_RECHAZO, COLUMNAS_RECHAZO, fill_encabezado, font_negrita)
 
         # Guardar el libro de trabajo modificado en un buffer de Bytes
         output_buffer = io.BytesIO()
@@ -569,7 +575,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         return False, f"❌ ERROR CRÍTICO DE ÍNDICE: Un índice de columna está fuera de rango. Mensaje: {ie}"
     except ValueError as ve:
         if 'sheetname' in str(ve) or 'Worksheet' in str(ve):
-            hojas_requeridas = [config['HOJA_PRINCIPAL'], 'Peso neto', HOJA_SECUENCIAS, HOJA_MANO_OBRA, HOJA_EXTERNA]
+            hojas_requeridas = [config['HOJA_PRINCIPAL'], 'Peso neto', HOJA_SECUENCIAS, HOJA_MANO_OBRA, 'Especif y Rutas']
             return False, f"❌ Error de Lectura de Hoja: Una de las hojas clave ({', '.join(hojas_requeridas)}) no se encontró en los archivos cargados. Mensaje: {ve}"
         return False, f"❌ Ocurrió un error inesperado de valor. Mensaje: {ve}"
     except Exception as e:
@@ -620,7 +626,7 @@ def main():
         file_externa = st.file_uploader(
             "Carga el archivo externo de toma de información.",
             type=['xlsb', 'xlsx'],
-            help=f"El archivo que contiene la hoja '{HOJA_EXTERNA}'.",
+            help="El archivo que contiene la hoja 'Especif y Rutas'.",
             key="file_externa_uploader" 
         )
 
@@ -660,7 +666,7 @@ def main():
                     mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     use_container_width=True
                 )
-                st.info(f"El archivo descargado contiene todas las hojas originales más las 4 hojas de reporte: **{hoja_salida}** (con fórmulas), '{HOJA_LSMW}', '{HOJA_CAMPOS_USUARIO}' y '{HOJA_PORCENTAJE_RECHAZO}' (con valores fijos).")
+                st.info(f"El archivo descargado contiene todas las hojas originales más las 4 hojas de reporte: **{hoja_salida}**, '{HOJA_LSMW}', '{HOJA_CAMPOS_USUARIO}' y '{HOJA_PORCENTAJE_RECHAZO}'.")
             else:
                 st.error("❌ Error en el Proceso")
                 st.warning(resultado)
@@ -668,6 +674,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
