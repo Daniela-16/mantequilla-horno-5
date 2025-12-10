@@ -6,10 +6,9 @@ Creado el Lunes 24 de Noviembre de 2025
 
 MODIFICACIONES IMPLEMENTADAS:
 1. Cantidad Base (Hoja de origen): Usar el valor sin decimales (Truncado).
-2. Cantidad Base Calculada (Archivo externo): Buscar la cantidad MAYOR para Atípicos (Temporal), pero luego se usa fórmula BUSCARV.
-3. Se insertan FÓRMULAS DE EXCEL (BUSCARV, SI, Suma, Resta) en TODAS las columnas que requieren buscar o calcular valores, EXCEPTO COL_SECUENCIA.
-4. COL_SECUENCIA y la detección de Atípicos se mantienen con lógica de Python (valores fijos).
-5. Se aplica formato de número Excel a las celdas con fórmula.
+2. COL_SECUENCIA, Mano de Obra (Incluye Personas/Máquinas) y la detección de Atípicos se mantienen con lógica de Python (valores fijos).
+3. Se insertan FÓRMULAS DE EXCEL (BUSCARV, SI, Suma, Resta) en el resto de columnas de cálculo.
+4. Se aplica formato de número Excel a las celdas con fórmula y a los valores fijos de Python.
 """
 
 import pandas as pd
@@ -104,43 +103,36 @@ IDX_MATERIAL_PN = 0
 IDX_RECHAZO_EXTERNA = 28 # Columna AC (29 en base 1)
 
 # --- CONSTANTES DE REFERENCIA EXCEL EN LA HOJA DE SALIDA ---
-# (Se asume que la columna 'GrpHRuta' es A)
+# (Basado en FINAL_COL_ORDER, asumiendo que GrpHRuta es A)
 COL_GRPHRUTA_OUTPUT_EXCEL = 'A'
 COL_MATERIAL_OUTPUT_EXCEL = 'C'
 COL_CLAVE_OUTPUT_EXCEL = 'D'
 COL_PSTTBJO_OUTPUT_EXCEL = 'AB' 
 COL_OP_OUTPUT_EXCEL = 'G'
-COL_CANT_BASE_OUTPUT_EXCEL = 'I'
-COL_CANT_CALC_OUTPUT_EXCEL = 'J'
-COL_DIFERENCIA_OUTPUT_EXCEL = 'K'
-COL_PESO_NETO_OUTPUT_EXCEL = 'L'
-COL_SECUENCIA_OUTPUT_EXCEL = 'M'
-COL_MANO_OBRA_OUTPUT_EXCEL = 'P'
-COL_SUMA_VALORES_OUTPUT_EXCEL = 'S'
+COL_CANT_BASE_OUTPUT_EXCEL = 'I' # Cantidad base
+COL_CANT_CALC_OUTPUT_EXCEL = 'J' # Cant. base calculada
+COL_DIFERENCIA_OUTPUT_EXCEL = 'K' # diferencia
+COL_PESO_NETO_OUTPUT_EXCEL = 'L' # peso neto
+COL_SECUENCIA_OUTPUT_EXCEL = 'M' # secuencia recurso
+COL_MANO_OBRA_OUTPUT_EXCEL = 'R' # Mano de obra (R es la posición 18 en el FINAL_COL_ORDER)
+COL_SUMA_VALORES_OUTPUT_EXCEL = 'T' # suma valores (T es la posición 20 en el FINAL_COL_ORDER)
 COL_NRO_PERSONAS_OUTPUT_EXCEL = 'V'
 COL_NRO_MAQUINAS_OUTPUT_EXCEL = 'X'
 
 # --- CONSTANTES DE REFERENCIA EXCEL EN LAS HOJAS DE BÚSQUEDA ---
 # Referencias a la hoja 'Especif y Rutas' (archivo externo)
-COL_CLAVE_EXTERNA_EXCEL = 'A'
-COL_CANT_EXTERNA_EXCEL = 'B'
-COL_RECHAZO_EXTERNA_EXCEL = 'AC'
 RANGO_EXTERNO_BUSCARV = '$A:$AC'
 COL_CANT_EXTERNA_INDEX = 2 
 COL_RECHAZO_EXTERNA_INDEX = 29
 
 # Referencias a la hoja 'Peso neto'
-COL_MATERIAL_PN_EXCEL = 'A'
-COL_PESO_NETO_VALOR_EXCEL = 'C'
 HOJA_PESO_NETO = 'Peso neto'
 RANGO_PN_BUSCARV = '$A:$C'
 COL_PESO_NETO_INDEX = 3
 
 # Referencias a la hoja 'Mano de obra'
-COL_PSTTBJO_MO_EXCEL = 'A' # Puesto de trabajo
-COL_TIEMPO_MO_EXCEL = 'C' # Tiempo (para Mano de obra)
-COL_CANTIDAD_MAQUINAS_MO_EXCEL = 'D' # Máquinas
-COL_CANTIDAD_PERSONAS_MO_EXCEL = 'E' # Personas
+HOJA_SECUENCIAS = 'Secuencias'
+HOJA_MANO_OBRA = 'Mano de obra'
 RANGO_MO_BUSCARV = '$A:$E'
 COL_TIEMPO_MO_INDEX = 3
 COL_CANTIDAD_MAQUINAS_MO_INDEX = 4
@@ -175,6 +167,7 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
     # 1. Crear el nuevo DataFrame con las columnas solicitadas
     df_nuevo = pd.DataFrame()
     for col in columnas_destino:
+        # Asegurarse de que las columnas que contienen la fórmula de Excel se escriban como string
         df_nuevo[col] = df_base[col] if col in df_base.columns else np.nan
 
     # 2. Escribir el nuevo DataFrame en la hoja
@@ -206,6 +199,7 @@ def obtener_secuencia(puesto_trabajo: str, df_secuencias: pd.DataFrame) -> Union
 
     return np.nan
 
+# ... (cargar_y_limpiar_datos se mantiene igual) ...
 def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.BytesIO, nombre_horno: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, str]]:
     """Carga todos los DataFrames necesarios desde los buffers de archivo."""
     
@@ -354,7 +348,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         
         # --- 3. Mapeo Temporal de Valores para Cálculo de Atípicos y Secuencia ---
         
-        # Función auxiliar para mapeo de Cantidad Máxima (Necesaria para Atípicos)
+        # Función auxiliar para mapeo de Cantidad Máxima (Necesaria solo para Atípicos)
         def mapear_con_maxima_cantidad_temp(df_origen: pd.DataFrame, df_externo: pd.DataFrame, col_clave_origen: str, col_clave_externa: str, col_cantidad_externa: str, col_destino: str):
             df_externo[col_cantidad_externa] = pd.to_numeric(df_externo[col_cantidad_externa], errors='coerce')
             df_mapa = (
@@ -377,12 +371,52 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         # 3.3. Mapeo de Peso Neto (Temporal para Atípicos)
         mapear_columna_temp(df_peso_neto, material_col_name, COL_PESO_NETO, col_names['material_pn'], col_names['peso_neto_valor'])
 
+        # 5. CÁLCULO DE MANO DE OBRA, PERSONAS Y MÁQUINAS (LÓGICA PYTHON - VALOR FIJO)
+        st.info("✅ **Mano de Obra, Personas y Máquinas** se calculan y se insertan como **valores fijos**.")
+
+        # Índices de df_mano_obra (A=0, C=2, D=3, E=4)
+        COL_PSTTBJO_MO = 0  
+        COL_TIEMPO_MO = 2   
+        COL_CANTIDAD_MAQUINAS_MO = 3 
+        COL_CANTIDAD_PERSONAS_MO = 4 
+
+        # Limpieza de datos en df_mano_obra
+        df_mano_obra[COL_PSTTBJO_MO] = df_mano_obra[COL_PSTTBJO_MO].astype(str).str.strip()
+        for col_idx in [COL_TIEMPO_MO, COL_CANTIDAD_MAQUINAS_MO, COL_CANTIDAD_PERSONAS_MO]:
+            df_mano_obra[col_idx] = pd.to_numeric(df_mano_obra[col_idx], errors='coerce')  
+
+        # Filtro: Solo operaciones que terminan en '1'
+        COL_OP = 'Op.'
+        op_col = df_original[COL_OP].astype(str).str.strip()
+        indices_terminan_en_1 = op_col.str.endswith('1')
+        psttbjo_filtrado = df_original.loc[indices_terminan_en_1, psttbjo_col_name].astype(str).str.strip()
+
+        # Mapeos para Mano de Obra, Personas y Máquinas
+        def mapear_mo_filtros(col_origen: int, col_destino: str):
+            """Genera el mapa y aplica el mapeo solo a las filas filtradas."""
+            mapa = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MO], keep='first').set_index(COL_PSTTBJO_MO)[col_origen]
+            df_original.loc[indices_terminan_en_1, col_destino] = psttbjo_filtrado.map(mapa)
+
+        # 5.1. Tiempo de Mano de Obra (Personas * 60)
+        df_mano_obra['Calculo_MO_Tiempo'] = df_mano_obra[COL_TIEMPO_MO] * 60
+        mapa_mano_obra_tiempo = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MO], keep='first').set_index(COL_PSTTBJO_MO)['Calculo_MO_Tiempo']
+        df_original[COL_MANO_OBRA] = np.nan
+        df_original.loc[indices_terminan_en_1, COL_MANO_OBRA] = psttbjo_filtrado.map(mapa_mano_obra_tiempo)
+
+        # 5.2. Número de Personas (Columna E)
+        df_original[COL_NRO_PERSONAS] = np.nan
+        mapear_mo_filtros(COL_CANTIDAD_PERSONAS_MO, COL_NRO_PERSONAS)
+
+        # 5.3. Número de Máquinas (Columna D)
+        df_original[COL_NRO_MAQUINAS] = np.nan
+        mapear_mo_filtros(COL_CANTIDAD_MAQUINAS_MO, COL_NRO_MAQUINAS)
+        
         # 4. Cálculo de Secuencia (VALOR FIJO CALCULADO EN PYTHON)
         df_original[COL_SECUENCIA] = df_original[columna_para_secuencia].astype(str).str.strip().apply(
             lambda x: obtener_secuencia(x, df_secuencias)
         )
 
-        # 7.5 CÁLCULO DE ATÍPICOS (Se mueve aquí, antes de convertir a fórmulas)
+        # 7.5 CÁLCULO DE ATÍPICOS (Se usa Cant. calc. y Peso Neto temporales)
         cols_agrupamiento = [COL_PESO_NETO, COL_SECUENCIA]
         df_original[COL_PESO_NETO] = pd.to_numeric(df_original[COL_PESO_NETO], errors='coerce')
         df_original[COL_SECUENCIA] = pd.to_numeric(df_original[COL_SECUENCIA], errors='coerce')
@@ -392,63 +426,51 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         ).reset_index(level=list(range(len(cols_agrupamiento))), drop=True).fillna(False)
         
         # --------------------------------------------------------------------------
-        # REEMPLAZO DE COLUMNAS POR FÓRMULAS DE EXCEL
+        # REEMPLAZO DE COLUMNAS POR FÓRMULAS DE EXCEL (Las que deben ser fórmulas)
         # --------------------------------------------------------------------------
 
-        # --- 3. Mapeo por Fórmulas BUSCARV ---
+        # --- 3. Fórmulas BUSCARV para Cant. base calculada (J), % rechazo (H), y Peso Neto (L) ---
         
-        # 3.1. COL_CANT_CALCULADA (Cant. base calculada - Fórmula)
+        # 3.1. COL_CANT_CALCULADA (Fórmula: reemplaza el valor temporal)
         formulas_cant_calc = [
             f'=BUSCARV({COL_CLAVE_OUTPUT_EXCEL}{r};\'{HOJA_EXTERNA}\'!{RANGO_EXTERNO_BUSCARV};{COL_CANT_EXTERNA_INDEX};FALSO)' 
             for r in indices_fila_excel
         ]
         df_original[COL_CANT_CALCULADA] = formulas_cant_calc
         
-        # 3.2. COL_PORCENTAJE_RECHAZO (% de rechazo - Fórmula)
+        # 3.2. COL_PORCENTAJE_RECHAZO (Fórmula)
         formulas_rechazo = [
             f'=BUSCARV({COL_CLAVE_OUTPUT_EXCEL}{r};\'{HOJA_EXTERNA}\'!{RANGO_EXTERNO_BUSCARV};{COL_RECHAZO_EXTERNA_INDEX};FALSO)'
             for r in indices_fila_excel
         ]
         df_original[COL_PORCENTAJE_RECHAZO] = formulas_rechazo
 
-        # 3.3. COL_PESO_NETO (peso neto - Fórmula)
+        # 3.3. COL_PESO_NETO (Fórmula: reemplaza el valor temporal)
         formulas_peso_neto = [
             f'=BUSCARV({COL_MATERIAL_OUTPUT_EXCEL}{r};\'{HOJA_PESO_NETO}\'!{RANGO_PN_BUSCARV};{COL_PESO_NETO_INDEX};FALSO)'
             for r in indices_fila_excel
         ]
         df_original[COL_PESO_NETO] = formulas_peso_neto
-        
-        # --- 5. Mano de Obra, Personas y Máquinas (Fórmulas Condicionales SI) ---
-        formulas_mo = [
-            f'=SI(DERECHA({COL_OP_OUTPUT_EXCEL}{r};1)="1";BUSCARV({COL_PSTTBJO_OUTPUT_EXCEL}{r};\'{HOJA_MANO_OBRA}\'!{RANGO_MO_BUSCARV};{COL_TIEMPO_MO_INDEX};FALSO)*60;"")'
-            for r in indices_fila_excel
-        ]
-        df_original[COL_MANO_OBRA] = formulas_mo
-
-        formulas_personas = [
-            f'=SI(DERECHA({COL_OP_OUTPUT_EXCEL}{r};1)="1";BUSCARV({COL_PSTTBJO_OUTPUT_EXCEL}{r};\'{HOJA_MANO_OBRA}\'!{RANGO_MO_BUSCARV};{COL_CANTIDAD_PERSONAS_MO_INDEX};FALSO);"")'
-            for r in indices_fila_excel
-        ]
-        df_original[COL_NRO_PERSONAS] = formulas_personas
-
-        formulas_maquinas = [
-            f'=SI(DERECHA({COL_OP_OUTPUT_EXCEL}{r};1)="1";BUSCARV({COL_PSTTBJO_OUTPUT_EXCEL}{r};\'{HOJA_MANO_OBRA}\'!{RANGO_MO_BUSCARV};{COL_CANTIDAD_MAQUINAS_MO_INDEX};FALSO);"")'
-            for r in indices_fila_excel
-        ]
-        df_original[COL_NRO_MAQUINAS] = formulas_maquinas
 
         # --- 6. Suma de Valores (Fórmula SUMA) ---
-        # Suma de ValPref(O) + ValPref1(P) + COL_MANO_OBRA(R) + ValPref3(S)
+        # La suma es de ValPref(O) + ValPref1(P) + ValPref2(Q) + COL_MANO_OBRA(R) + ValPref3(S) + ValPref4(T) + ValPref5(U) 
+        # (Basado en FINAL_COL_ORDER)
+        # Las columnas a sumar son: ValPref(O), ValPref1(P), COL_MANO_OBRA(R), ValPref3(S). (Sumando solo las del cálculo original)
+        # ValPref = O, ValPref1 = P, COL_MANO_OBRA = R, ValPref3 = S
         formulas_suma = [f'=O{r}+P{r}+R{r}+S{r}' for r in indices_fila_excel]
         df_original[COL_SUMA_VALORES] = formulas_suma
         
         # --- 7. Cálculo de Diferencia (Fórmula Resta) ---
         
-        # Truncado de Cantidad base (Columna I) en Python
+        # Truncado de Cantidad base (Columna I) en Python (valor fijo formateado)
         H_str = df_original[NOMBRE_COL_CANTIDAD_BASE].astype(str).str.replace(',', '.', regex=False).str.strip()
         H_float = pd.to_numeric(H_str, errors='coerce')
         H_trunc = np.trunc(H_float)
-        df_original[NOMBRE_COL_CANTIDAD_BASE] = H_trunc.apply(lambda x: f"{x:.0f}".replace('.', ',') if pd.notna(x) else np.nan)
+        
+        def formato_sin_decimales_str(x):
+            return f"{x:.0f}".replace('.', ',') if pd.notna(x) and pd.api.types.is_number(x) else np.nan
+
+        df_original[NOMBRE_COL_CANTIDAD_BASE] = H_trunc.apply(formato_sin_decimales_str)
         
         # Fórmula de Diferencia: Cantidad base (I) - Cant. base calculada (J)
         formulas_diferencia = [f'={COL_CANT_BASE_OUTPUT_EXCEL}{r}-{COL_CANT_CALC_OUTPUT_EXCEL}{r}' for r in indices_fila_excel]
@@ -456,6 +478,18 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         
         # 8. Reconstrucción Final y Guardado con Formato
         
+        # Formato de valores fijos de Python
+        def formato_excel_regional_2_dec(x):
+             # Necesario para que el valor de Python se escriba en formato Excel correcto
+             return f"{x:.2f}".replace('.', ',') if pd.notna(x) and pd.api.types.is_number(x) else x
+        
+        # Aplicar formato de 2 decimales a Mano de Obra (Valor fijo)
+        df_original[COL_MANO_OBRA] = df_original[COL_MANO_OBRA].apply(formato_excel_regional_2_dec)
+        
+        # Aplicar formato de entero a Personas y Máquinas (Valores fijos)
+        df_original[COL_NRO_PERSONAS] = df_original[COL_NRO_PERSONAS].apply(lambda x: formato_sin_decimales_str(x))
+        df_original[COL_NRO_MAQUINAS] = df_original[COL_NRO_MAQUINAS].apply(lambda x: formato_sin_decimales_str(x))
+
         if COL_PSTTBJO_CONCATENADO in df_original.columns:
              df_original = df_original.drop(columns=[COL_PSTTBJO_CONCATENADO])
 
@@ -504,20 +538,24 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
                 cell_to_color = ws.cell(row=r, column=col_cant_calculada_idx)
                 cell_to_color.fill = fill_anomalia
                 
-        # 8.3 APLICACIÓN DE FORMATO NUMÉRICO A LAS COLUMNAS CON FÓRMULAS
+        # 8.3 APLICACIÓN DE FORMATO NUMÉRICO A LAS COLUMNAS CON FÓRMULAS Y VALORES FIJOS
         
         EXCEL_FORMATO_2_DECIMALES = '#,##0.00' 
         EXCEL_FORMATO_PORCENTAJE = '0.00%'
+        EXCEL_FORMATO_ENTERO = '0'
 
         columnas_a_formatear = {
+            # Columnas con FÓRMULA
             COL_CANT_CALCULADA: EXCEL_FORMATO_2_DECIMALES, 
             COL_DIFERENCIA: EXCEL_FORMATO_2_DECIMALES,
             COL_SUMA_VALORES: EXCEL_FORMATO_2_DECIMALES,
             COL_PESO_NETO: EXCEL_FORMATO_2_DECIMALES,
-            COL_MANO_OBRA: EXCEL_FORMATO_2_DECIMALES,
-            COL_NRO_PERSONAS: '0', # Entero
-            COL_NRO_MAQUINAS: '0', # Entero
-            COL_PORCENTAJE_RECHAZO: EXCEL_FORMATO_PORCENTAJE # Porcentaje
+            COL_PORCENTAJE_RECHAZO: EXCEL_FORMATO_PORCENTAJE,
+            # Columnas con VALOR FIJO (Calculado en Python)
+            COL_MANO_OBRA: EXCEL_FORMATO_2_DECIMALES, 
+            COL_SECUENCIA: EXCEL_FORMATO_ENTERO,
+            COL_NRO_PERSONAS: EXCEL_FORMATO_ENTERO,
+            COL_NRO_MAQUINAS: EXCEL_FORMATO_ENTERO,
         }
         
         for col_name, number_format in columnas_a_formatear.items():
