@@ -8,7 +8,8 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.utils import get_column_letter
-from openpyxl.workbook.workbook import Workbook # <--- NUEVA IMPORTACIÓN
+from openpyxl.workbook.workbook import Workbook 
+from openpyxl.workbook.properties import CalcProperties # <--- CORRECCIÓN CLAVE
 from collections import Counter
 import re
 from typing import Tuple, Union, Dict, Any
@@ -683,12 +684,14 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         crear_y_guardar_hoja(wb, df_original_final, HOJA_PORCENTAJE_RECHAZO, COLUMNAS_RECHAZO, fill_encabezado, font_negrita)
         
         
-        # --- LA SOLUCIÓN AL PROBLEMA DE RECALCULO ---
+        # --- SOLUCIÓN AL PROBLEMA DE RECALCULO: Forzar FullCalcOnLoad ---
         # 
-        # Forzar el recálculo automático al abrir el archivo de Excel.
+        # Si la propiedad de cálculo no existe, la creamos usando CalcProperties
         if wb.calcProperties is None:
-            wb.calcProperties = Workbook.calcProperties 
-        wb.calcProperties.fullCalcOnLoad = True # <--- ¡Esta es la clave!
+            wb.calcProperties = CalcProperties()
+            
+        # Esta línea fuerza a Excel a recalcular todas las fórmulas al abrir el archivo.
+        wb.calcProperties.fullCalcOnLoad = True 
         # -------------------------------------------
 
 
