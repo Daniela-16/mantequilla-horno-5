@@ -133,7 +133,7 @@ def filtrar_operaciones_impares_desde_31(df: pd.DataFrame) -> pd.DataFrame:
     return df_filtrado
 
 
-# FUNCIÓN crear_y_guardar_hoja (MODIFICADA PARA APLICAR CONDICIONAL CERO EN LSMW)
+# FUNCIÓN crear_y_guardar_hoja
 def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_destino: list, fill_encabezado: PatternFill, font_negrita: Font, hoja_salida_name: str = None):
     """
     Crea y guarda una hoja de cálculo en el workbook, aplicando filtros y fórmulas de vinculación si es LSMW.
@@ -159,7 +159,13 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
         # Aseguramos que la columna exista en el DataFrame filtrado/base
         if col in df_a_guardar.columns:
             # Los campos vinculados se ponen como NaN para Openpyxl escriba la fórmula
-            if nombre_hoja == HOJA_LSMW and col in [COL_CANT_CALCULADA, 'ValPref', 'ValPref1', COL_MANO_OBRA, 'ValPref3', COL_SUMA_VALORES, 'ValPref5']:
+            # La lista de COLUMNAS_A_VINCULAR ahora incluye las que pidió el usuario más la Cant. Calculada
+            COLUMNAS_A_VINCULAR = [
+                COL_CANT_CALCULADA, 'ValPref', 'ValPref1', COL_MANO_OBRA, 
+                'ValPref3', COL_SUMA_VALORES, 'ValPref5'
+            ]
+            
+            if nombre_hoja == HOJA_LSMW and col in COLUMNAS_A_VINCULAR:
                  df_nuevo[col] = np.nan
             else:
                  df_nuevo[col] = df_a_guardar[col]
@@ -179,23 +185,23 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
     for row in dataframe_to_rows(df_nuevo, header=True, index=False):
         ws.append(row)
 
-    # LÓGICA DE FÓRMULA DE VINCULACIÓN PARA LSMW (df_base es df_original_final)
+    # LÓGICA DE FÓRMULA DE VINCULACIÓN PARA LSMW
     if nombre_hoja == HOJA_LSMW and hoja_salida_name:
         
-        # Columnas que deben ser vinculadas a la hoja procesada
-        COLUMNAS_A_VINCULAR = [
-            COL_CANT_CALCULADA, 'ValPref', 'ValPref1', COL_MANO_OBRA, 
+        # Columnas que deben ser vinculadas a la hoja procesada (Confirmadas por el usuario + Cantidad Calculada)
+        COLUMNAS_A_VINCULAR_LSMW = [
+            COL_CANT_CALCULADA, 'ValPref', 'ValPref1', COL_MANO_OBRA,  
             'ValPref3', COL_SUMA_VALORES, 'ValPref5'
         ]
         
-        # Columnas a las que se les aplica la lógica de dejar celda vacía si es 0
-        COLUMNAS_CON_CONDICIONAL_CERO = COLUMNAS_A_VINCULAR 
+        # Todas las columnas vinculadas tendrán el condicional CERO
+        COLUMNAS_CON_CONDICIONAL_CERO = COLUMNAS_A_VINCULAR_LSMW 
         
         try:
             df_referencia = df_base # df_original_final
 
             # Iterar sobre las columnas a vincular
-            for col_name_to_link in COLUMNAS_A_VINCULAR:
+            for col_name_to_link in COLUMNAS_A_VINCULAR_LSMW:
                 if col_name_to_link not in df_nuevo.columns:
                     continue
 
@@ -229,7 +235,7 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
                     cell = ws.cell(row=excel_row, column=lsmw_col_idx, value=formula)
                     
                     # Aplicar formato numérico a todas las celdas vinculadas
-                    cell.number_format = '#,##0.00' 
+                    cell.number_format = '#,##0.00' # CRÍTICO: El formato debe aplicarse a la celda que contiene la fórmula
             
         except KeyError:
             st.error(f"Error al aplicar fórmulas en '{HOJA_LSMW}'. Verifique la existencia de las columnas.")
@@ -328,9 +334,7 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     cols_externo = pd.read_excel(file_info_externa, sheet_name='Especif y Rutas', nrows=0).columns.tolist()
     file_info_externa.seek(0)
 
-    # --- CORRECCIÓN AQUÍ: Usar IDX_RECHAZO_EXTERNA ---
     nombre_col_rechazo_externa = cols_externo[IDX_RECHAZO_EXTERNA] if IDX_RECHAZO_EXTERNA < len(cols_externo) else 'Columna AC'
-    # --- FIN CORRECCIÓN ---
     
     cols_a_leer_externo = [NOMBRE_COL_CLAVE_EXTERNA, NOMBRE_COL_CANT_EXTERNA, nombre_col_rechazo_externa]
     df_externo = pd.read_excel(file_info_externa, sheet_name='Especif y Rutas', header=0, usecols=cols_a_leer_externo)
@@ -528,16 +532,9 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         
         I = pd.to_numeric(df_original[COL_CANT_CALCULADA], errors='coerce')
 
-        def formato_excel_regional(x):
-            """Aplica formato de coma decimal para Excel (2 decimales)."""
-            return f"{x:.2f}".replace('.', ',') if pd.notna(x) else np.nan
-        
-        def formato_sin_decimales(x):
-            """Formato para la Cantidad base de origen (entero)"""
-            return f"{x:.0f}".replace('.', ',') if pd.notna(x) else np.nan
-
-        # Aplicar el formato de sin decimales a la columna de origen (Columna I)
-        df_original[NOMBRE_COL_CANTIDAD_BASE] = H_trunc.apply(formato_sin_decimales)
+        # *** MODIFICACIÓN CRÍTICA: NO APLICAR FORMATO REGIONAL DE CADENA AQUÍ ***
+        # Dejamos H_trunc como float (con punto decimal) para que Openpyxl lo escriba como número.
+        df_original[NOMBRE_COL_CANTIDAD_BASE] = H_trunc 
 
         # Rellenar la columna de diferencia con NaN; la fórmula se añadirá después con openpyxl.
         df_original[COL_DIFERENCIA] = np.nan 
@@ -564,8 +561,8 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         if COL_PSTTBJO_CONCATENADO in df_original.columns:
             df_original = df_original.drop(columns=[COL_PSTTBJO_CONCATENADO])
             
-        # IMPORTANTE: Reaplicar el formato regional a COL_CANT_CALCULADA antes de guardar
-        df_original[COL_CANT_CALCULADA] = df_original[COL_CANT_CALCULADA].apply(formato_excel_regional)
+        # *** ELIMINAMOS LA CONVERSIÓN A CADENA REGIONAL PARA COL_CANT_CALCULADA ***
+        # Ahora df_original[COL_CANT_CALCULADA] es el float I
 
         # Reindexar el DataFrame final con el orden deseado. ESTE ES EL ORDEN DE LA HOJA PROCESADA
         df_original_final = df_original.reindex(columns=[c for c in FINAL_COL_ORDER if c in df_original.columns])
@@ -584,6 +581,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         ws = wb.create_sheet(HOJA_SALIDA)
 
         # Escribir el DataFrame con valores y NaNs
+        # Openpyxl escribirá los floats de df_original_final como números en Excel.
         for row in dataframe_to_rows(df_original_final, header=True, index=False):
             ws.append(row)
 
@@ -610,7 +608,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             cell = ws.cell(row=r, column=col_diferencia_idx, value=formula_dif)
             cell.number_format = '#,##0.00'
 
-        # --- APLICACIÓN DE FÓRMULA DE SUMA DE VALORES (CORREGIDO PARA EVITAR CERO/0) ---
+        # --- APLICACIÓN DE FÓRMULA DE SUMA DE VALORES ---
         try:
             # 1. Obtener el índice y la letra de la columna suma valores
             col_suma_valores_idx = df_original_final.columns.get_loc(COL_SUMA_VALORES) + 1
@@ -624,11 +622,9 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
             # 2. Aplicar FÓRMULA DE SUMA con condicional (SI)
             for r in range(2, len(df_original_final) + 2):
-                # Ejemplo: =SUMA(O2,P2,Q2,S2)
                 sum_expression = f'SUMA({",".join([f"{letter}{r}" for letter in col_sum_letters])})'
                 
                 # Fórmula condicional: SI(SUMA(...) = 0, "", SUMA(...))
-                # Esto garantiza que si la suma es 0 (o vacío), se deja la celda vacía ("")
                 formula_sum = f'=SI({sum_expression}=0,"",{sum_expression})'
                 
                 cell = ws.cell(row=r, column=col_suma_valores_idx, value=formula_sum)
@@ -639,6 +635,14 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
 
         # 4. APLICACIÓN DE FORMATOS EN HOJA PRINCIPAL
+        # --- CRÍTICO: Definimos TODAS las columnas que son VALORES NUMÉRICOS para aplicarles formato de número en Excel
+        COLUMNAS_VALOR_NUMERICO = [
+            NOMBRE_COL_CANTIDAD_BASE, COL_CANT_CALCULADA, COL_PESO_NETO, COL_SECUENCIA,
+            'ValPref', 'ValPref1', 'ValPref2', COL_MANO_OBRA, 'ValPref3', 'ValPref4', 'ValPref5',
+            COL_NRO_PERSONAS, COL_NRO_MAQUINAS, COL_PORCENTAJE_RECHAZO
+        ]
+        
+        # Columnas para encabezado
         COLUMNAS_ENCABEZADO_FORMATO = [COL_CANT_CALCULADA, NOMBRE_COL_CANTIDAD_BASE] + COLUMNAS_A_RESALTAR
 
         indices_encabezado = [
@@ -653,9 +657,23 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             header_cell.font = font_negrita
 
         # Aplicar el sombreado a los datos de 'Cant. base calculada' (naranja para atípicos)
-        col_cant_calculada_idx = col_cant_calculada_idx 
-
-        for r in range(2, len(df_original) + 2):
+        # Y aplicar formato numérico a las columnas de valor
+        
+        col_indices_valor_numerico = [
+             df_original_final.columns.get_loc(col_name) + 1 
+             for col_name in COLUMNAS_VALOR_NUMERICO
+             if col_name in df_original_final.columns
+        ]
+        
+        # Iterar sobre las filas de datos (a partir de la fila 2)
+        for r in range(2, len(df_original_final) + 2):
+            # Aplicar formato numérico a los valores de las columnas clave
+            for col_idx in col_indices_valor_numerico:
+                cell = ws.cell(row=r, column=col_idx)
+                # Asegurar que los números se muestren con el formato regional adecuado
+                cell.number_format = '#,##0.00' 
+                
+            # Aplicar el color de anomalía
             if df_original.iloc[r-2][COL_ATIPICO]:
                 cell_to_color = ws.cell(row=r, column=col_cant_calculada_idx)
                 cell_to_color.fill = fill_anomalia
