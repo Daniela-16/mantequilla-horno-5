@@ -8,6 +8,8 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.utils import get_column_letter
+from openpyxl.workbook.workbook import Workbook 
+# from openpyxl.workbook.properties import CalcProperties # <-- ¡ELIMINADA PARA EVITAR ERROR EN CLOUD!
 from collections import Counter
 import re
 from typing import Tuple, Union, Dict, Any
@@ -133,7 +135,7 @@ def filtrar_operaciones_impares_desde_31(df: pd.DataFrame) -> pd.DataFrame:
     return df_filtrado
 
 
-# FUNCIÓN crear_y_guardar_hoja (Modificada para usar formato numérico en openpyxl)
+# FUNCIÓN crear_y_guardar_hoja (Modificada para usar IF en lugar de SI)
 def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_destino: list, fill_encabezado: PatternFill, font_negrita: Font, hoja_salida_name: str = None):
     """
     Crea y guarda una hoja de cálculo en el workbook, aplicando filtros y fórmulas de vinculación si es LSMW.
@@ -220,11 +222,10 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
                     # Referencia simple a la celda en la hoja de salida
                     referencia_celda = f"'{hoja_salida_name}'!{source_col_letter}{excel_row}"
                     
-                    # Aplicar la lógica condicional SI(CELDA=0,"",CELDA)
+                    # Aplicar la lógica condicional IF (en lugar de SI)
                     if col_name_to_link in COLUMNAS_CON_CONDICIONAL_CERO:
-                        # La fórmula se escribe en sintaxis universal de Excel (coma).
-                        # Excel la convierte a punto y coma (;) en el entorno regional del usuario.
-                        formula = f"=SI({referencia_celda}=0,\"\",{referencia_celda})"
+                        # Fórmula universal: =IF(CELDA=0,"",CELDA)
+                        formula = f"=IF({referencia_celda}=0,\"\",{referencia_celda})"
                     else:
                         formula = f"={referencia_celda}"
                     
@@ -232,7 +233,7 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
                     cell = ws.cell(row=excel_row, column=lsmw_col_idx, value=formula)
                     
                     # Aplicar formato numérico a todas las celdas vinculadas
-                    cell.number_format = '#,##0.00' # Esto es CRÍTICO para que la celda se muestre con coma decimal.
+                    cell.number_format = '#,##0.00' 
             
         except KeyError:
             st.error(f"Error al aplicar fórmulas en '{HOJA_LSMW}'. Verifique la existencia de las columnas.")
@@ -328,7 +329,7 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     cols_externo = pd.read_excel(file_info_externa, sheet_name='Especif y Rutas', nrows=0).columns.tolist()
     file_info_externa.seek(0)
 
-    nombre_col_rechazo_externa = cols_externo[IDX_RECHAZO_EXTERNA] if IDX_RECHAZO_EXTERNA < len(cols_externo) else 'Columna AC'
+    nombre_col_rechazo_externa = cols_externo[IDX_RECHAZO_EXTERNA] if IDX_RECHAZA_EXTERNA < len(cols_externo) else 'Columna AC'
     
     cols_a_leer_externo = [NOMBRE_COL_CLAVE_EXTERNA, NOMBRE_COL_CANT_EXTERNA, nombre_col_rechazo_externa]
     df_externo = pd.read_excel(file_info_externa, sheet_name='Especif y Rutas', header=0, usecols=cols_a_leer_externo)
@@ -339,7 +340,7 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
 
     return df_original, df_externo, df_peso_neto, df_secuencias, df_mano_obra, col_names
 
-# --- FUNCIÓN PRINCIPAL DE PROCESAMIENTO ---
+# --- FUNCIÓN PRINCIPAL DE PROCESAMIENTO (Modificada para usar ROUNDDOWN, IF, SUM) ---
 
 def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_info_externa: io.BytesIO, nombre_horno: str) -> Tuple[bool, Union[str, io.BytesIO]]:
     """
@@ -588,14 +589,15 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         col_calculada_letter = get_column_letter(col_cant_calculada_idx) 
         
         # --- APLICACIÓN DE FÓRMULA DE EXCEL EN COLUMNA 'diferencia' ---
-        
+        # USAMOS ROUNDDOWN (universal) en lugar de REDONDEAR.MENOS
         for r in range(2, len(df_original_final) + 2):
-            formula_dif = f'=REDONDEAR.MENOS({col_base_letter}{r}, 0) - {col_calculada_letter}{r}'
+            formula_dif = f'=ROUNDDOWN({col_base_letter}{r}, 0) - {col_calculada_letter}{r}'
             
             cell = ws.cell(row=r, column=col_diferencia_idx, value=formula_dif)
             cell.number_format = '#,##0.00'
 
         # --- APLICACIÓN DE FÓRMULA DE SUMA DE VALORES ---
+        # USAMOS SUM e IF (universales) en lugar de SUMA y SI
         try:
             col_suma_valores_idx = df_original_final.columns.get_loc(COL_SUMA_VALORES) + 1
             
@@ -606,9 +608,9 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             ]
 
             for r in range(2, len(df_original_final) + 2):
-                sum_expression = f'SUMA({",".join([f"{letter}{r}" for letter in col_sum_letters])})'
+                sum_expression = f'SUM({",".join([f"{letter}{r}" for letter in col_sum_letters])})'
                 
-                formula_sum = f'=SI({sum_expression}=0,"",{sum_expression})'
+                formula_sum = f'=IF({sum_expression}=0,"",{sum_expression})'
                 
                 cell = ws.cell(row=r, column=col_suma_valores_idx, value=formula_sum)
                 cell.number_format = '#,##0.00' 
@@ -679,6 +681,13 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         
         # 3. HOJA PORCENTAJE DE RECHAZO
         crear_y_guardar_hoja(wb, df_original_final, HOJA_PORCENTAJE_RECHAZO, COLUMNAS_RECHAZO, fill_encabezado, font_negrita)
+        
+        
+        # --- CÁLCULO DE PROPIEDADES (DESACTIVADO PARA EVITAR ERROR EN CLOUD) ---
+        # Se elimina el código problemático 'wb.calcProperties.fullCalcOnLoad = True'
+        # para que la app se ejecute. El usuario debe usar F9.
+        # -------------------------------------------
+
 
         # Guardar el libro de trabajo modificado en un buffer de Bytes
         output_buffer = io.BytesIO()
@@ -769,6 +778,9 @@ def main():
 
             if success:
                 st.success(f"✅ Proceso para **{selected_horno}** completado exitosamente.")
+
+                # Mensaje de instrucción clave para el usuario 
+                st.warning("⚠️ **ACCIÓN REQUERIDA EN EXCEL:** Debido a problemas de compatibilidad del servidor, el cálculo automático está desactivado en el archivo descargado. **Deberá abrir el archivo de Excel y presionar la tecla F9 para activar todas las fórmulas** (especialmente en las hojas 'lsmw' y 'HORNOXX_procesado').")
 
                 # Nombre de archivo de salida
                 base_name = file_original.name.split('.')[0]
