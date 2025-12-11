@@ -7,7 +7,7 @@ import io
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font
 from openpyxl.utils.dataframe import dataframe_to_rows
-from openpyxl.utils import get_column_letter 
+from openpyxl.utils import get_column_letter
 from collections import Counter
 import re
 from typing import Tuple, Union, Dict, Any
@@ -32,9 +32,9 @@ COL_LINEA = 'Linea'
 COL_PSTTBJO_CONCATENADO = 'PstoTbjo_Concat' # Nombre temporal para la columna concatenada
 
 # Nombres de hojas a crear (Comunes)
-HOJA_SECUENCIAS = 'Secuencias' 
+HOJA_SECUENCIAS = 'Secuencias'
 HOJA_LSMW = 'lsmw'
-HOJA_CAMPOS_USUARIO = 'campos de usuario' 
+HOJA_CAMPOS_USUARIO = 'campos de usuario'
 HOJA_PORCENTAJE_RECHAZO = '% de rechazo'
 COL_OP = 'Op.'
 
@@ -113,9 +113,9 @@ def filtrar_operaciones_impares_desde_31(df: pd.DataFrame) -> pd.DataFrame:
     """
     if COL_OP not in df.columns:
         st.warning("Columna 'Op.' no encontrada para aplicar filtro en 'campos de usuario'.")
-        return pd.DataFrame() 
+        return pd.DataFrame()
 
-    df_temp = df.copy() 
+    df_temp = df.copy()
     
     # 1. Intentar convertir la columna 'Op.' a numérico
     df_temp['Op_Num'] = pd.to_numeric(df_temp[COL_OP].astype(str).str.strip(), errors='coerce')
@@ -133,7 +133,7 @@ def filtrar_operaciones_impares_desde_31(df: pd.DataFrame) -> pd.DataFrame:
     return df_filtrado
 
 
-# FUNCIÓN crear_y_guardar_hoja 
+# FUNCIÓN crear_y_guardar_hoja (MODIFICADA PARA APLICAR CONDICIONAL CERO EN LSMW)
 def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_destino: list, fill_encabezado: PatternFill, font_negrita: Font, hoja_salida_name: str = None):
     """
     Crea y guarda una hoja de cálculo en el workbook, aplicando filtros y fórmulas de vinculación si es LSMW.
@@ -188,8 +188,11 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
             'ValPref3', COL_SUMA_VALORES, 'ValPref5'
         ]
         
+        # Columnas a las que se les aplica la lógica de dejar celda vacía si es 0
+        COLUMNAS_CON_CONDICIONAL_CERO = COLUMNAS_A_VINCULAR 
+        
         try:
-            df_referencia = df_base 
+            df_referencia = df_base # df_original_final
 
             # Iterar sobre las columnas a vincular
             for col_name_to_link in COLUMNAS_A_VINCULAR:
@@ -211,8 +214,16 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
                 for r_idx in range(len(df_nuevo)):
                     excel_row = r_idx + 2 # Fila de datos en Excel (Empieza en 2)
                     
-                    # Fórmula: ='[Hoja_Procesada]'!$[Letra_Columna]$[Fila]
-                    formula = f"='{hoja_salida_name}'!${source_col_letter}{excel_row}"
+                    # Referencia simple a la celda en la hoja de salida
+                    referencia_celda = f"'{hoja_salida_name}'!${source_col_letter}${excel_row}"
+                    
+                    # Aplicar la lógica condicional SI(CELDA=0,"",CELDA)
+                    if col_name_to_link in COLUMNAS_CON_CONDICIONAL_CERO:
+                        # Fórmula con condicional: =SI('[Hoja_Procesada]'!$X$Y=0, "", '[Hoja_Procesada]'!$X$Y)
+                        formula = f"=SI({referencia_celda}=0,\"\",{referencia_celda})"
+                    else:
+                        # Fórmula de vinculación simple: ='[Hoja_Procesada]'!$X$Y
+                        formula = f"={referencia_celda}"
                     
                     # Sobrescribir la celda con la fórmula
                     cell = ws.cell(row=excel_row, column=lsmw_col_idx, value=formula)
@@ -221,13 +232,13 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
                     cell.number_format = '#,##0.00' 
             
         except KeyError:
-             st.error(f"Error al aplicar fórmulas en '{HOJA_LSMW}'. Verifique la existencia de las columnas.")
+            st.error(f"Error al aplicar fórmulas en '{HOJA_LSMW}'. Verifique la existencia de las columnas.")
 
 
     # 3. Aplicar Formato a Encabezados Específicos
     indices_a_formatear = [
-        df_nuevo.columns.get_loc(col) + 1 
-        for col in COLUMNAS_A_RESALTAR 
+        df_nuevo.columns.get_loc(col) + 1
+        for col in COLUMNAS_A_RESALTAR
         if col in df_nuevo.columns
     ]
 
@@ -249,7 +260,7 @@ def obtener_secuencia(puesto_trabajo: str, df_secuencias: pd.DataFrame) -> Union
 
     return np.nan
 
-# FUNCIÓN cargar_y_limpiar_datos (CORREGIDA la errata de IDX_RECHAZA_EXTERNA)
+# FUNCIÓN cargar_y_limpiar_datos
 def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.BytesIO, nombre_horno: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, str]]:
     """Carga todos los DataFrames necesarios desde los buffers de archivo."""
     
