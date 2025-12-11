@@ -133,7 +133,7 @@ def filtrar_operaciones_impares_desde_31(df: pd.DataFrame) -> pd.DataFrame:
     return df_filtrado
 
 
-# FUNCIÓN crear_y_guardar_hoja
+# FUNCIÓN crear_y_guardar_hoja (Modificada para usar formato numérico en openpyxl)
 def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_destino: list, fill_encabezado: PatternFill, font_negrita: Font, hoja_salida_name: str = None):
     """
     Crea y guarda una hoja de cálculo en el workbook, aplicando filtros y fórmulas de vinculación si es LSMW.
@@ -141,11 +141,9 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
     
     # Si la hoja a crear es la de campos de usuario, aplicamos el filtro
     if nombre_hoja == HOJA_CAMPOS_USUARIO:
-        # Aquí df_base ya es df_original_final (reindexado)
         df_a_guardar = filtrar_operaciones_impares_desde_31(df_base)
         
     else:
-        # Para todas las demás hojas, usamos la base completa (una copia para seguridad)
         df_a_guardar = df_base.copy()
     
     if nombre_hoja in wb.sheetnames:
@@ -156,10 +154,9 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
     # 1. Crear el nuevo DataFrame con las columnas solicitadas
     df_nuevo = pd.DataFrame()
     for col in columnas_destino:
-        # Aseguramos que la columna exista en el DataFrame filtrado/base
         if col in df_a_guardar.columns:
             # Los campos vinculados se ponen como NaN para Openpyxl escriba la fórmula
-            # La lista de COLUMNAS_A_VINCULAR ahora incluye las que pidió el usuario más la Cant. Calculada
+            # Esta lista asegura que las columnas solicitadas por el usuario se pongan como fórmula
             COLUMNAS_A_VINCULAR = [
                 COL_CANT_CALCULADA, 'ValPref', 'ValPref1', COL_MANO_OBRA, 
                 'ValPref3', COL_SUMA_VALORES, 'ValPref5'
@@ -188,7 +185,7 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
     # LÓGICA DE FÓRMULA DE VINCULACIÓN PARA LSMW
     if nombre_hoja == HOJA_LSMW and hoja_salida_name:
         
-        # Columnas que deben ser vinculadas a la hoja procesada (Confirmadas por el usuario + Cantidad Calculada)
+        # Columnas que deben ser vinculadas a la hoja procesada
         COLUMNAS_A_VINCULAR_LSMW = [
             COL_CANT_CALCULADA, 'ValPref', 'ValPref1', COL_MANO_OBRA,  
             'ValPref3', COL_SUMA_VALORES, 'ValPref5'
@@ -198,7 +195,7 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
         COLUMNAS_CON_CONDICIONAL_CERO = COLUMNAS_A_VINCULAR_LSMW 
         
         try:
-            df_referencia = df_base # df_original_final
+            df_referencia = df_base # df_original_final (contiene los índices de columna correctos)
 
             # Iterar sobre las columnas a vincular
             for col_name_to_link in COLUMNAS_A_VINCULAR_LSMW:
@@ -208,7 +205,7 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
                 # 1. Obtener la columna de la hoja LSMW donde se colocará la fórmula
                 lsmw_col_idx = df_nuevo.columns.get_loc(col_name_to_link) + 1
                 
-                # 2. Obtener la letra de la columna en la HOJA_SALIDA (usando el orden de df_base)
+                # 2. Obtener la letra de la columna en la HOJA_SALIDA
                 try:
                     source_col_idx = df_referencia.columns.get_loc(col_name_to_link) + 1
                     source_col_letter = get_column_letter(source_col_idx)
@@ -225,17 +222,17 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
                     
                     # Aplicar la lógica condicional SI(CELDA=0,"",CELDA)
                     if col_name_to_link in COLUMNAS_CON_CONDICIONAL_CERO:
-                        # Fórmula con condicional: =SI('[Hoja_Procesada]'!$X$Y=0, "", '[Hoja_Procesada]'!$X$Y)
+                        # La fórmula se escribe en sintaxis universal de Excel (coma).
+                        # Excel la convierte a punto y coma (;) en el entorno regional del usuario.
                         formula = f"=SI({referencia_celda}=0,\"\",{referencia_celda})"
                     else:
-                        # Fórmula de vinculación simple: ='[Hoja_Procesada]'!$X$Y
                         formula = f"={referencia_celda}"
                     
                     # Sobrescribir la celda con la fórmula
                     cell = ws.cell(row=excel_row, column=lsmw_col_idx, value=formula)
                     
                     # Aplicar formato numérico a todas las celdas vinculadas
-                    cell.number_format = '#,##0.00' # CRÍTICO: El formato debe aplicarse a la celda que contiene la fórmula
+                    cell.number_format = '#,##0.00' # Esto es CRÍTICO para que la celda se muestre con coma decimal.
             
         except KeyError:
             st.error(f"Error al aplicar fórmulas en '{HOJA_LSMW}'. Verifique la existencia de las columnas.")
@@ -274,11 +271,9 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     hoja_principal = config['HOJA_PRINCIPAL']
 
     # --- 1. Lectura de Archivo Original ---
-    # Leer encabezados de la hoja principal
     cols_original = pd.read_excel(file_original, sheet_name=hoja_principal, nrows=0).columns.tolist()
     file_original.seek(0)
     
-    # Leer encabezados de Peso neto
     cols_pn = pd.read_excel(file_original, sheet_name='Peso neto', nrows=0).columns.tolist()
     file_original.seek(0)
     
@@ -292,7 +287,6 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
         'hoja_principal': hoja_principal
     }
 
-    # Definir las columnas a leer de la hoja principal: Leer TODAS las columnas
     df_original = pd.read_excel(
         file_original, 
         sheet_name=hoja_principal, 
@@ -532,8 +526,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         
         I = pd.to_numeric(df_original[COL_CANT_CALCULADA], errors='coerce')
 
-        # *** MODIFICACIÓN CRÍTICA: NO APLICAR FORMATO REGIONAL DE CADENA AQUÍ ***
-        # Dejamos H_trunc como float (con punto decimal) para que Openpyxl lo escriba como número.
+        # *** MODIFICACIÓN CRÍTICA: Asegurar que los datos base se guarden como floats (números) ***
         df_original[NOMBRE_COL_CANTIDAD_BASE] = H_trunc 
 
         # Rellenar la columna de diferencia con NaN; la fórmula se añadirá después con openpyxl.
@@ -561,9 +554,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         if COL_PSTTBJO_CONCATENADO in df_original.columns:
             df_original = df_original.drop(columns=[COL_PSTTBJO_CONCATENADO])
             
-        # *** ELIMINAMOS LA CONVERSIÓN A CADENA REGIONAL PARA COL_CANT_CALCULADA ***
-        # Ahora df_original[COL_CANT_CALCULADA] es el float I
-
         # Reindexar el DataFrame final con el orden deseado. ESTE ES EL ORDEN DE LA HOJA PROCESADA
         df_original_final = df_original.reindex(columns=[c for c in FINAL_COL_ORDER if c in df_original.columns])
 
@@ -581,7 +571,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         ws = wb.create_sheet(HOJA_SALIDA)
 
         # Escribir el DataFrame con valores y NaNs
-        # Openpyxl escribirá los floats de df_original_final como números en Excel.
         for row in dataframe_to_rows(df_original_final, header=True, index=False):
             ws.append(row)
 
@@ -600,9 +589,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         
         # --- APLICACIÓN DE FÓRMULA DE EXCEL EN COLUMNA 'diferencia' ---
         
-        # Rango de filas (desde la fila 2 hasta el final)
         for r in range(2, len(df_original_final) + 2):
-            # Fórmula: =REDONDEAR.MENOS(I#; 0) - J# (Simula TRUNCAR(I#) - J#)
             formula_dif = f'=REDONDEAR.MENOS({col_base_letter}{r}, 0) - {col_calculada_letter}{r}'
             
             cell = ws.cell(row=r, column=col_diferencia_idx, value=formula_dif)
@@ -610,21 +597,17 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         # --- APLICACIÓN DE FÓRMULA DE SUMA DE VALORES ---
         try:
-            # 1. Obtener el índice y la letra de la columna suma valores
             col_suma_valores_idx = df_original_final.columns.get_loc(COL_SUMA_VALORES) + 1
             
-            # Obtener las letras de las columnas que participan en la suma (DE LA HOJA PROCESADA)
             col_sum_letters = [
                 get_column_letter(df_original_final.columns.get_loc(col) + 1)
                 for col in COLUMNAS_A_SUMAR 
                 if col in df_original_final.columns
             ]
 
-            # 2. Aplicar FÓRMULA DE SUMA con condicional (SI)
             for r in range(2, len(df_original_final) + 2):
                 sum_expression = f'SUMA({",".join([f"{letter}{r}" for letter in col_sum_letters])})'
                 
-                # Fórmula condicional: SI(SUMA(...) = 0, "", SUMA(...))
                 formula_sum = f'=SI({sum_expression}=0,"",{sum_expression})'
                 
                 cell = ws.cell(row=r, column=col_suma_valores_idx, value=formula_sum)
@@ -680,10 +663,10 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         # --- CREACIÓN DE HOJAS ADICIONALES ---
         
-        # 1. HOJA LSMW (Se pasa df_original_final para que la función pueda obtener las letras correctamente)
+        # 1. HOJA LSMW 
         crear_y_guardar_hoja(
             wb, 
-            df_original_final, # PASAMOS EL DATAFRAME FINAL REINDEXADO
+            df_original_final, 
             HOJA_LSMW, 
             COLUMNAS_LSMW, 
             fill_encabezado, 
@@ -691,7 +674,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             hoja_salida_name=HOJA_SALIDA 
         )
         
-        # 2. HOJA CAMPOS DE USUARIO (CON FILTRO)
+        # 2. HOJA CAMPOS DE USUARIO 
         crear_y_guardar_hoja(wb, df_original_final, HOJA_CAMPOS_USUARIO, COLUMNAS_CAMPOS_USUARIO, fill_encabezado, font_negrita)
         
         # 3. HOJA PORCENTAJE DE RECHAZO
@@ -809,5 +792,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
