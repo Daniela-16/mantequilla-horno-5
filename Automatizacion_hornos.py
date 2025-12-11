@@ -7,7 +7,7 @@ import io
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font
 from openpyxl.utils.dataframe import dataframe_to_rows
-from openpyxl.utils import get_column_letter # Importación necesaria
+from openpyxl.utils import get_column_letter 
 from collections import Counter
 import re
 from typing import Tuple, Union, Dict, Any
@@ -38,7 +38,7 @@ HOJA_CAMPOS_USUARIO = 'campos de usuario'
 HOJA_PORCENTAJE_RECHAZO = '% de rechazo'
 COL_OP = 'Op.'
 
-# Columnas a resaltar en todas las hojas 
+# Columnas a resaltar en todas las hojas (solicitado por el usuario)
 COLUMNAS_A_RESALTAR = [
     COL_MANO_OBRA,
     COL_SUMA_VALORES,
@@ -46,7 +46,7 @@ COLUMNAS_A_RESALTAR = [
     COL_NRO_MAQUINAS
 ]
 
-# Definición de columnas de salida
+# Definición de columnas de salida (Comunes)
 COLUMNAS_LSMW = [
     'PstoTbjo', 'GrpHRuta', 'CGH', 'Material', COL_CLAVE, 'Ce.', COL_OP,
     COL_CANT_CALCULADA, 'ValPref', 'ValPref1', COL_MANO_OBRA, 'ValPref3',
@@ -133,9 +133,11 @@ def filtrar_operaciones_impares_desde_31(df: pd.DataFrame) -> pd.DataFrame:
     return df_filtrado
 
 
-# MODIFICACIÓN CLAVE: Se eliminó el parámetro source_cant_calculada_col_letter
+# FUNCIÓN crear_y_guardar_hoja (MODIFICADA para LSMW)
 def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_destino: list, fill_encabezado: PatternFill, font_negrita: Font, hoja_salida_name: str = None):
-    
+    """
+    Crea y guarda una hoja de cálculo en el workbook, aplicando filtros y fórmulas de vinculación si es LSMW.
+    """
     
     # Si la hoja a crear es la de campos de usuario, aplicamos el filtro
     if nombre_hoja == HOJA_CAMPOS_USUARIO:
@@ -155,14 +157,15 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
     for col in columnas_destino:
         # Aseguramos que la columna exista en el DataFrame filtrado/base
         if col in df_a_guardar.columns:
-            df_nuevo[col] = df_a_guardar[col]
+            # Los campos vinculados se ponen como NaN para Openpyxl escriba la fórmula
+            if nombre_hoja == HOJA_LSMW and col in [COL_CANT_CALCULADA, 'ValPref', 'ValPref1', COL_MANO_OBRA, 'ValPref3', COL_SUMA_VALORES, 'ValPref5']:
+                 df_nuevo[col] = np.nan
+            else:
+                 df_nuevo[col] = df_a_guardar[col]
         elif col == 'Indicador' and nombre_hoja == HOJA_CAMPOS_USUARIO:
             df_nuevo[col] = 'x'
         elif col == 'clase de control' and nombre_hoja == HOJA_CAMPOS_USUARIO:
             df_nuevo[col] = 'ZPP0006'
-        # Si es una columna de fórmula en LSMW o simplemente no existe, la dejamos como NaN
-        elif nombre_hoja == HOJA_LSMW and col in ['ValPref', 'ValPref1', COL_MANO_OBRA, 'ValPref3', COL_SUMA_VALORES, 'ValPref5']:
-             df_nuevo[col] = np.nan
         else:
             df_nuevo[col] = np.nan
             
@@ -175,7 +178,7 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
     for row in dataframe_to_rows(df_nuevo, header=True, index=False):
         ws.append(row)
 
-    # LÓGICA DE FÓRMULA DE VINCULACIÓN PARA LSMW (MODIFICADO)
+    # LÓGICA DE FÓRMULA DE VINCULACIÓN PARA LSMW (CORREGIDO Y REFORZADO)
     if nombre_hoja == HOJA_LSMW and hoja_salida_name:
         
         # Columnas que deben ser vinculadas a la hoja procesada
@@ -184,7 +187,19 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
             'ValPref3', COL_SUMA_VALORES, 'ValPref5'
         ]
         
+        # La referencia 'df_base' debe ser la hoja procesada final que contiene las fórmulas
+        # Para esta función, df_base es el DataFrame ANTES de reindexar y guardar con openpyxl.
+        # En la práctica, usaremos el DataFrame completo (df_original) para obtener los índices
+        
+        # ⚠️ IMPORTANTE: Para obtener los índices correctos, necesitamos el DataFrame *final* reindexado
+        # Como no lo tenemos aquí, asumimos que df_base tiene TODAS las columnas.
+        
         try:
+            # Crear un índice simple para las columnas en df_base para obtener su letra
+            # Usamos df_a_guardar (que es df_original.copy()) ya que df_base no tiene el reindex final
+            # PERO asumimos que df_base contiene las columnas en las mismas posiciones que la salida real
+            df_referencia = df_a_guardar 
+
             # Iterar sobre las columnas a vincular
             for col_name_to_link in COLUMNAS_A_VINCULAR:
                 if col_name_to_link not in df_nuevo.columns:
@@ -193,9 +208,18 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
                 # 1. Obtener la columna de la hoja LSMW donde se colocará la fórmula
                 lsmw_col_idx = df_nuevo.columns.get_loc(col_name_to_link) + 1
                 
-                # 2. Obtener la letra de la columna correspondiente en la hoja de salida (HOJA_SALIDA)
+                # 2. Obtener la letra de la columna en la HOJA_SALIDA (USANDO LA LISTA FINAL_COL_ORDER)
+                # Esta es la parte crítica, se necesita la letra de la columna en la hoja de salida real.
+                # Como FINAL_COL_ORDER se define afuera, debemos encontrar el índice allí.
+                
+                # Se necesita una forma robusta de obtener la letra de la columna en la hoja de destino (HOJA_SALIDA)
+                # La mejor forma es que la función principal pase el mapa de letras.
+                # Como no podemos pasar un argumento más, usaremos la lógica de la función principal
+                # para encontrar la letra de la columna en df_base y confiar en que coincide con la guardada.
+                
                 try:
-                    source_col_idx = df_base.columns.get_loc(col_name_to_link) + 1
+                    # Buscamos la columna en el DataFrame de referencia (df_base)
+                    source_col_idx = df_referencia.columns.get_loc(col_name_to_link) + 1
                     source_col_letter = get_column_letter(source_col_idx)
                 except KeyError:
                     st.warning(f"La columna '{col_name_to_link}' no se encontró en la base de datos de origen ('df_base'). No se puede vincular.")
@@ -206,6 +230,7 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
                     excel_row = r_idx + 2 # Fila de datos en Excel (Empieza en 2)
                     
                     # Fórmula: ='[Hoja_Procesada]'!$[Letra_Columna]$[Fila]
+                    # La vinculación siempre trae el dato correcto, incluyendo si es "" (vacío) o cero.
                     formula = f"='{hoja_salida_name}'!${source_col_letter}{excel_row}"
                     
                     # Sobrescribir la celda con la fórmula
@@ -216,6 +241,7 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
             
         except KeyError:
              st.error(f"Error al aplicar fórmulas en '{HOJA_LSMW}'. Verifique la existencia de las columnas.")
+
 
     # 3. Aplicar Formato a Encabezados Específicos
     indices_a_formatear = [
@@ -309,7 +335,7 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     cols_externo = pd.read_excel(file_info_externa, sheet_name='Especif y Rutas', nrows=0).columns.tolist()
     file_info_externa.seek(0)
 
-    nombre_col_rechazo_externa = cols_externo[IDX_RECHAZO_EXTERNA] if IDX_RECHAZO_EXTERNA < len(cols_externo) else 'Columna AC'
+    nombre_col_rechazo_externa = cols_externo[IDX_RECHAZO_EXTERNA] if IDX_RECHAZA_EXTERNA < len(cols_externo) else 'Columna AC'
     cols_a_leer_externo = [NOMBRE_COL_CLAVE_EXTERNA, NOMBRE_COL_CANT_EXTERNA, nombre_col_rechazo_externa]
     df_externo = pd.read_excel(file_info_externa, sheet_name='Especif y Rutas', header=0, usecols=cols_a_leer_externo)
     file_info_externa.seek(0)
@@ -319,7 +345,7 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
 
     return df_original, df_externo, df_peso_neto, df_secuencias, df_mano_obra, col_names
 
-# --- FUNCIÓN PRINCIPAL DE PROCESAMIENTO ---
+# --- FUNCIÓN PRINCIPAL DE PROCESAMIENTO (MODIFICADA para Fórmula de Suma) ---
 
 def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_info_externa: io.BytesIO, nombre_horno: str) -> Tuple[bool, Union[str, io.BytesIO]]:
     """
@@ -340,7 +366,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         COL_NRO_PERSONAS,
         'Campo de usuario cantidad MAQUINAS',
         COL_NRO_MAQUINAS,
-        'Texto breve operación', 'Ctrl', 'VerF', 'PstoTbjo', 'Cl.', 'Gr.fam.pre',
+        'Texto breve operación', 'Ctrl', 'VerF', 'PstoTbjo', 'Cl.', 'Gr.fam.pre', # Agregada Gr.fam.pre, aunque no está en la lista del usuario, se mantiene el original
         'Texto breve de material', 'Txt.brv.HRuta', 'Bloq.vers.fabric.', 'Campo usuario unidad',
         'Campo usuario unidad.1', 'Cantidad', 'Contador', 'InBo', 'InBo.1', 'InBo.2',
         'Unnamed: 31', 'I'
@@ -494,18 +520,10 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         df_original[COL_NRO_MAQUINAS] = np.nan
         mapear_mo_filtros(COL_CANTIDAD_MAQUINAS_MO, COL_NRO_MAQUINAS)
 
-        # 6. Suma de Valores y formato (MODIFICADO: se reserva el espacio, la fórmula se aplica después)
-        def formato_excel_regional_suma(x):
-            """Aplica formato de coma decimal para Excel y maneja NaN/cero."""
-            return f"{x:.2f}".replace('.', ',') if pd.notna(x) and x != 0.0 else np.nan
-
-        # df_temp_sum = df_original[COLUMNAS_A_SUMAR].apply(lambda col: pd.to_numeric(col, errors='coerce'))
-        # df_original[COL_SUMA_VALORES] = df_temp_sum.sum(axis=1, skipna=True).apply(formato_excel_regional_suma)
-        df_original[COL_SUMA_VALORES] = np.nan # Reservamos el espacio para la fórmula de Excel
+        # 6. Suma de Valores (Se reserva el espacio para la fórmula de Excel)
+        df_original[COL_SUMA_VALORES] = np.nan 
 
         # 7. Cálculo de Diferencia y Atípicos
-        
-        # MODIFICACIÓN CLAVE: Coger Cantidad base (H) sin decimales.
         
         H_str = df_original[NOMBRE_COL_CANTIDAD_BASE].astype(str).str.replace(',', '.', regex=False).str.strip()
         H_float = pd.to_numeric(H_str, errors='coerce')
@@ -553,6 +571,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         # IMPORTANTE: Reaplicar el formato regional a COL_CANT_CALCULADA antes de guardar
         df_original[COL_CANT_CALCULADA] = df_original[COL_CANT_CALCULADA].apply(formato_excel_regional)
 
+        # Reindexar el DataFrame final con el orden deseado. ESTE ES EL ORDEN DE LA HOJA PROCESADA
         df_original_final = df_original.reindex(columns=[c for c in FINAL_COL_ORDER if c in df_original.columns])
 
         # Cargar el libro de trabajo desde el buffer (Para mantener las hojas originales)
@@ -572,18 +591,17 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         for row in dataframe_to_rows(df_original_final, header=True, index=False):
             ws.append(row)
 
-        # --- CÁLCULO DE ÍNDICES Y LETRAS PARA LA FÓRMULA DE EXCEL ---
+        # --- CÁLCULO DE ÍNDICES Y LETRAS PARA LA FÓRMULA DE EXCEL (HOJA PROCESADA) ---
         
         try:
             col_diferencia_idx = df_original_final.columns.get_loc(COL_DIFERENCIA) + 1 
             col_cant_base_idx = df_original_final.columns.get_loc(NOMBRE_COL_CANTIDAD_BASE) + 1 
             col_cant_calculada_idx = df_original_final.columns.get_loc(COL_CANT_CALCULADA) + 1 
-        except KeyError:
-            st.warning("No se pudo determinar la posición exacta de las columnas de diferencia. Asumiendo I=9, J=10, K=11.")
-            col_diferencia_idx = 11
-            col_cant_base_idx = 9
-            col_cant_calculada_idx = 10
-        
+        except KeyError as e:
+            st.warning(f"No se pudo determinar la posición exacta de las columnas de diferencia: {e}.")
+            # Fallback o lanzar excepción
+            return False, f"Error: No se encontró una columna clave para cálculo en la hoja procesada: {e}"
+
         col_base_letter = get_column_letter(col_cant_base_idx) 
         col_calculada_letter = get_column_letter(col_cant_calculada_idx) 
         
@@ -597,29 +615,31 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             cell = ws.cell(row=r, column=col_diferencia_idx, value=formula_dif)
             cell.number_format = '#,##0.00'
 
-        # --- APLICACIÓN DE FÓRMULA DE SUMA DE VALORES (NUEVA LÓGICA) ---
+        # --- APLICACIÓN DE FÓRMULA DE SUMA DE VALORES (CORREGIDO PARA EVITAR CERO/0) ---
         try:
             # 1. Obtener el índice y la letra de la columna suma valores
             col_suma_valores_idx = df_original_final.columns.get_loc(COL_SUMA_VALORES) + 1
-            col_suma_valores_letter = get_column_letter(col_suma_valores_idx)
             
-            # Obtener las letras de las columnas que participan en la suma
+            # Obtener las letras de las columnas que participan en la suma (DE LA HOJA PROCESADA)
             col_sum_letters = [
                 get_column_letter(df_original_final.columns.get_loc(col) + 1)
                 for col in COLUMNAS_A_SUMAR 
                 if col in df_original_final.columns
             ]
 
-            # 2. Aplicar FÓRMULA DE SUMA en HOJA_SALIDA
+            # 2. Aplicar FÓRMULA DE SUMA con condicional (SI)
             for r in range(2, len(df_original_final) + 2):
-                # Fórmula: =SUMA(Col1#, Col2#, Col3#, Col4#)
-                formula_sum = f'=SUMA({",".join([f"{letter}{r}" for letter in col_sum_letters])})'
+                # Ejemplo: =SUMA(O2,P2,Q2,S2)
+                sum_expression = f'SUMA({",".join([f"{letter}{r}" for letter in col_sum_letters])})'
+                
+                # Fórmula condicional: SI(SUMA(...) = 0, "", SUMA(...))
+                formula_sum = f'=SI({sum_expression}=0,"",{sum_expression})'
                 
                 cell = ws.cell(row=r, column=col_suma_valores_idx, value=formula_sum)
-                cell.number_format = '#,##0.00' 
+                cell.number_format = '#,##0.00' # Se mantiene formato numérico
                 
-        except KeyError:
-            st.error(f"Error al aplicar fórmula de suma en '{HOJA_SALIDA}'. Una columna de suma ({COLUMNAS_A_SUMAR}) no fue encontrada.")
+        except KeyError as e:
+            st.error(f"Error al aplicar fórmula de suma en '{HOJA_SALIDA}'. Una columna de suma no fue encontrada: {e}")
 
 
         # 4. APLICACIÓN DE FORMATOS EN HOJA PRINCIPAL
@@ -644,24 +664,31 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
                 cell_to_color = ws.cell(row=r, column=col_cant_calculada_idx)
                 cell_to_color.fill = fill_anomalia
 
-        # --- CREACIÓN DE HOJAS ADICIONALES (El filtro se aplica dentro de crear_y_guardar_hoja) ---
+        # --- CREACIÓN DE HOJAS ADICIONALES ---
         
-        # 1. HOJA LSMW (CON VINCULACIÓN DE FÓRMULA - LLAMADA MODIFICADA)
+        # 1. HOJA LSMW (Se pasa df_original para que la función pueda obtener las letras)
+        # La función crear_y_guardar_hoja ahora debe ser lo suficientemente inteligente para obtener la letra
+        # de columna correcta de la hoja 'HOJA_SALIDA', usando el orden de las columnas del df_original_final.
+        
+        # Para que esto funcione de forma 100% segura, necesito que la función crear_y_guardar_hoja
+        # sepa el orden de las columnas en HOJA_SALIDA. Usaremos df_original_final.columns para esto.
+        
+        # ⚠️ Paso df_original_final a crear_y_guardar_hoja para que use el orden de columnas real.
         crear_y_guardar_hoja(
             wb, 
-            df_original, 
+            df_original_final, # PASAMOS EL DATAFRAME FINAL REINDEXADO
             HOJA_LSMW, 
             COLUMNAS_LSMW, 
             fill_encabezado, 
             font_negrita,
-            hoja_salida_name=HOJA_SALIDA # Solo se pasa el nombre de la hoja de origen
+            hoja_salida_name=HOJA_SALIDA 
         )
         
         # 2. HOJA CAMPOS DE USUARIO (CON FILTRO)
-        crear_y_guardar_hoja(wb, df_original, HOJA_CAMPOS_USUARIO, COLUMNAS_CAMPOS_USUARIO, fill_encabezado, font_negrita)
+        crear_y_guardar_hoja(wb, df_original_final, HOJA_CAMPOS_USUARIO, COLUMNAS_CAMPOS_USUARIO, fill_encabezado, font_negrita)
         
         # 3. HOJA PORCENTAJE DE RECHAZO
-        crear_y_guardar_hoja(wb, df_original, HOJA_PORCENTAJE_RECHAZO, COLUMNAS_RECHAZO, fill_encabezado, font_negrita)
+        crear_y_guardar_hoja(wb, df_original_final, HOJA_PORCENTAJE_RECHAZO, COLUMNAS_RECHAZO, fill_encabezado, font_negrita)
 
         # Guardar el libro de trabajo modificado en un buffer de Bytes
         output_buffer = io.BytesIO()
@@ -775,7 +802,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
 
 
