@@ -218,7 +218,7 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
                     excel_row = r_idx + 2 # Fila de datos en Excel (Empieza en 2)
                     
                     # Referencia simple a la celda en la hoja de salida
-                    referencia_celda = f"'{hoja_salida_name}'!${source_col_letter}${excel_row}"
+                    referencia_celda = f"'{hoja_salida_name}'!{source_col_letter}{excel_row}"
                     
                     # Aplicar la lógica condicional SI(CELDA=0,"",CELDA)
                     if col_name_to_link in COLUMNAS_CON_CONDICIONAL_CERO:
@@ -792,4 +792,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
