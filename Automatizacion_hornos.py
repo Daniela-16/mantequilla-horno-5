@@ -442,7 +442,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             
             # Aplicar formato numérico a los datos
             for r in range(2, len(df_original_final) + 2):
-                ws.cell(row=r, column=col_idx).number_format = '#,##0.00'
+                ws.cell(row=r, column=col_idx).number_format = '#,##0'
 
 
         # 8. Creación de Hojas Adicionales
@@ -562,5 +562,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
