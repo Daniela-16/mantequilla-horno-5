@@ -8,8 +8,6 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.utils import get_column_letter
-from openpyxl.workbook.workbook import Workbook 
-from openpyxl.workbook.properties import CalcProperties # <--- CORRECCIÓN CLAVE
 from collections import Counter
 import re
 from typing import Tuple, Union, Dict, Any
@@ -135,7 +133,7 @@ def filtrar_operaciones_impares_desde_31(df: pd.DataFrame) -> pd.DataFrame:
     return df_filtrado
 
 
-# FUNCIÓN crear_y_guardar_hoja (Mantenida)
+# FUNCIÓN crear_y_guardar_hoja (Modificada para usar formato numérico en openpyxl)
 def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_destino: list, fill_encabezado: PatternFill, font_negrita: Font, hoja_salida_name: str = None):
     """
     Crea y guarda una hoja de cálculo en el workbook, aplicando filtros y fórmulas de vinculación si es LSMW.
@@ -592,7 +590,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         # --- APLICACIÓN DE FÓRMULA DE EXCEL EN COLUMNA 'diferencia' ---
         
         for r in range(2, len(df_original_final) + 2):
-            # Usar REDONDEAR.MENOS para replicar el truncamiento
             formula_dif = f'=REDONDEAR.MENOS({col_base_letter}{r}, 0) - {col_calculada_letter}{r}'
             
             cell = ws.cell(row=r, column=col_diferencia_idx, value=formula_dif)
@@ -682,18 +679,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         
         # 3. HOJA PORCENTAJE DE RECHAZO
         crear_y_guardar_hoja(wb, df_original_final, HOJA_PORCENTAJE_RECHAZO, COLUMNAS_RECHAZO, fill_encabezado, font_negrita)
-        
-        
-        # --- SOLUCIÓN AL PROBLEMA DE RECALCULO: Forzar FullCalcOnLoad ---
-        # 
-        # Si la propiedad de cálculo no existe, la creamos usando CalcProperties
-        if wb.calcProperties is None:
-            wb.calcProperties = CalcProperties()
-            
-        # Esta línea fuerza a Excel a recalcular todas las fórmulas al abrir el archivo.
-        wb.calcProperties.fullCalcOnLoad = True 
-        # -------------------------------------------
-
 
         # Guardar el libro de trabajo modificado en un buffer de Bytes
         output_buffer = io.BytesIO()
