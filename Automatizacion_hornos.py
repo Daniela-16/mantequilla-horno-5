@@ -1,9 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-Script de automatización para el procesamiento de datos de Hornos (Streamlit App).
-Incluye la vinculación de la columna 'Cant. base calculada' en la hoja 'lsmw' a 
-la hoja de salida procesada mediante una fórmula de Excel.
-"""
 
 import pandas as pd
 import numpy as np
@@ -37,11 +32,11 @@ COL_LINEA = 'Linea'
 COL_PSTTBJO_CONCATENADO = 'PstoTbjo_Concat' # Nombre temporal para la columna concatenada
 
 # Nombres de hojas a crear (Comunes)
-HOJA_SECUENCIAS = 'Secuencias' # Esta hoja es común
+HOJA_SECUENCIAS = 'Secuencias' 
 HOJA_LSMW = 'lsmw'
-HOJA_CAMPOS_USUARIO = 'campos de usuario' # Hoja a la que se aplica el filtro
+HOJA_CAMPOS_USUARIO = 'campos de usuario' 
 HOJA_PORCENTAJE_RECHAZO = '% de rechazo'
-COL_OP = 'Op.' # Constante para la columna de Operación
+COL_OP = 'Op.'
 
 # Columnas a resaltar en todas las hojas (solicitado por el usuario)
 COLUMNAS_A_RESALTAR = [
@@ -59,7 +54,7 @@ COLUMNAS_LSMW = [
 ]
 COLUMNAS_CAMPOS_USUARIO = [
     'GrpHRuta', 'CGH', 'Material', 'Ce.', COL_OP,
-    'Indicador', 'clase de control', # Estas columnas serán llenadas con valores fijos
+    'Indicador', 'clase de control',
     COL_NRO_PERSONAS, COL_NRO_MAQUINAS
 ]
 COLUMNAS_RECHAZO = [
@@ -88,7 +83,7 @@ HORNOS_CONFIG = {
     },
 }
 
-# Índices para el archivo original (ASUMO QUE SON COMUNES)
+# Índices para el archivo original
 IDX_MATERIAL = 2 # Columna C
 IDX_GRPLF = 4 # Columna E
 IDX_CANTIDAD_BASE_LEIDA = 6 # Columna G
@@ -100,7 +95,7 @@ IDX_RECHAZO_EXTERNA = 28
 # --- FUNCIONES DE LÓGICA (Mantenidas) ---
 
 def detectar_y_marcar_cantidad_atipica(grupo: pd.DataFrame) -> pd.Series:
-    """Identifica valores atípicos (diferentes de la moda) en Cant. base calculada dentro de un grupo."""
+   
     valores_no_nan = grupo[COL_CANT_CALCULADA].dropna()
     if valores_no_nan.empty:
         return pd.Series(False, index=grupo.index)
@@ -125,7 +120,7 @@ def filtrar_operaciones_impares_desde_31(df: pd.DataFrame) -> pd.DataFrame:
     # 1. Intentar convertir la columna 'Op.' a numérico
     df_temp['Op_Num'] = pd.to_numeric(df_temp[COL_OP].astype(str).str.strip(), errors='coerce')
     
-    # 2. Definir la condición: No es NaN AND es >= 31 AND es impar (módulo 2 es 1)
+    # 2. Definir la condición: No es NaN AND es >= 31 AND es impar
     condicion_impar_desde_31 = (
         df_temp['Op_Num'].notna() & 
         (df_temp['Op_Num'] >= 31) & 
@@ -139,17 +134,12 @@ def filtrar_operaciones_impares_desde_31(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_destino: list, fill_encabezado: PatternFill, font_negrita: Font, hoja_salida_name: str = None, source_cant_calculada_col_letter: str = None):
-    """
-    Crea una nueva hoja, la rellena con las columnas especificadas de df_base,
-    y aplica formato de encabezado. Aplica filtro especial si es HOJA_CAMPOS_USUARIO.
-    Si es HOJA_LSMW, llena COL_CANT_CALCULADA con fórmulas de vinculación a la hoja de salida.
-    """
+
     
     # Si la hoja a crear es la de campos de usuario, aplicamos el filtro
     if nombre_hoja == HOJA_CAMPOS_USUARIO:
         df_a_guardar = filtrar_operaciones_impares_desde_31(df_base)
-        st.info(f"✨ **Aplicado filtro de '{COL_OP}' impar (>= 31)** a la hoja '{nombre_hoja}'. Filas restantes: {len(df_a_guardar)}")
-        st.info(f"✍️ Llenando columnas 'Indicador' con 'x' y 'clase de control' con 'ZPP0006'.")
+        
     else:
         # Para todas las demás hojas, usamos la base completa (una copia para seguridad)
         df_a_guardar = df_base.copy()
@@ -189,7 +179,7 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
         try:
             # Obtener el índice de la columna en la hoja LSMW
             lsmw_cant_calculada_idx = df_nuevo.columns.get_loc(COL_CANT_CALCULADA) + 1
-            st.info(f"✍️ Llenando **'{COL_CANT_CALCULADA}'** en '{HOJA_LSMW}' con fórmulas de vinculación.")
+            
 
             # Iterar sobre las filas de datos (a partir de la fila 2)
             for r_idx in range(len(df_nuevo)):
@@ -422,7 +412,6 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             # 3. Aplicar el mapeo al DataFrame de origen
             df_origen[col_destino] = df_origen[col_clave_origen].map(df_mapa)
         
-        st.info(f"🔄 Aplicando nueva lógica: **'{COL_CANT_CALCULADA}'** se mapea con el **valor máximo** del archivo externo.")
         
         # 3.1. Mapeo de Cantidad Calculada (usando la nueva lógica de MAX)
         mapear_con_maxima_cantidad(
@@ -441,8 +430,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         mapear_columna(df_peso_neto, material_col_name, COL_PESO_NETO, col_names['material_pn'], col_names['peso_neto_valor'])
 
         # 4. Cálculo de Secuencia (Usando la columna determinada)
-        st.info(f"🔄 Buscando secuencia para todas las filas usando la columna '{columna_para_secuencia}'.")
-
+        
         df_original[COL_SECUENCIA] = df_original[columna_para_secuencia].astype(str).str.strip().apply(
             lambda x: obtener_secuencia(x, df_secuencias)
         )
@@ -495,7 +483,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         # 7. Cálculo de Diferencia y Atípicos
         
         # MODIFICACIÓN CLAVE: Coger Cantidad base (H) sin decimales.
-        st.info("📐 Cantidad base (Columna de origen) se está truncando a entero para el cálculo de la diferencia.")
+        
         H_str = df_original[NOMBRE_COL_CANTIDAD_BASE].astype(str).str.replace(',', '.', regex=False).str.strip()
         H_float = pd.to_numeric(H_str, errors='coerce')
         # Truncar (eliminar decimales)
@@ -534,7 +522,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         # --- APLICACIÓN DE VALORES FIJOS PARA CAMPOS DE USUARIO ---
         df_original['Indicador'] = 'x'
         df_original['clase de control'] = 'ZPP0006'
-        st.success("🎉 Columnas 'Indicador' ('x') y 'clase de control' ('ZPP0006') añadidas al DataFrame base.")
+        
         # La función crear_y_guardar_hoja se encargará de usar estos valores en la hoja filtrada
         
         # Si se creó la columna de concatenación, la eliminamos para el output final
@@ -580,7 +568,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         
         # --- APLICACIÓN DE FÓRMULA DE EXCEL EN COLUMNA 'diferencia' ---
         
-        st.info(f"✍️ Escribiendo la fórmula de Excel en la columna '{COL_DIFERENCIA}' ({get_column_letter(col_diferencia_idx)}).")
+        
 
         # Rango de filas (desde la fila 2 hasta el final)
         for r in range(2, len(df_original_final) + 2):
@@ -745,6 +733,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
