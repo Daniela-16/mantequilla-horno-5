@@ -135,7 +135,7 @@ def filtrar_operaciones_impares_desde_31(df: pd.DataFrame) -> pd.DataFrame:
     return df_filtrado
 
 
-# FUNCIÓN crear_y_guardar_hoja (Modificada para usar IF en lugar de SI)
+# FUNCIÓN crear_y_guardar_hoja (Usando IF universal)
 def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_destino: list, fill_encabezado: PatternFill, font_negrita: Font, hoja_salida_name: str = None):
     """
     Crea y guarda una hoja de cálculo en el workbook, aplicando filtros y fórmulas de vinculación si es LSMW.
@@ -222,7 +222,7 @@ def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_d
                     # Referencia simple a la celda en la hoja de salida
                     referencia_celda = f"'{hoja_salida_name}'!{source_col_letter}{excel_row}"
                     
-                    # Aplicar la lógica condicional IF (en lugar de SI)
+                    # Aplicar la lógica condicional IF (universal)
                     if col_name_to_link in COLUMNAS_CON_CONDICIONAL_CERO:
                         # Fórmula universal: =IF(CELDA=0,"",CELDA)
                         formula = f"=IF({referencia_celda}=0,\"\",{referencia_celda})"
@@ -329,7 +329,8 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
     cols_externo = pd.read_excel(file_info_externa, sheet_name='Especif y Rutas', nrows=0).columns.tolist()
     file_info_externa.seek(0)
 
-    nombre_col_rechazo_externa = cols_externo[IDX_RECHAZO_EXTERNA] if IDX_RECHAZA_EXTERNA < len(cols_externo) else 'Columna AC'
+    # CORRECCIÓN DE ERROR: Usar IDX_RECHAZO_EXTERNA (la constante definida) en lugar de IDX_RECHAZA_EXTERNA
+    nombre_col_rechazo_externa = cols_externo[IDX_RECHAZO_EXTERNA] if IDX_RECHAZO_EXTERNA < len(cols_externo) else 'Columna AC'
     
     cols_a_leer_externo = [NOMBRE_COL_CLAVE_EXTERNA, NOMBRE_COL_CANT_EXTERNA, nombre_col_rechazo_externa]
     df_externo = pd.read_excel(file_info_externa, sheet_name='Especif y Rutas', header=0, usecols=cols_a_leer_externo)
@@ -340,7 +341,7 @@ def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.Byte
 
     return df_original, df_externo, df_peso_neto, df_secuencias, df_mano_obra, col_names
 
-# --- FUNCIÓN PRINCIPAL DE PROCESAMIENTO (Modificada para usar ROUNDDOWN, IF, SUM) ---
+# --- FUNCIÓN PRINCIPAL DE PROCESAMIENTO (Usando ROUNDDOWN, IF, SUM) ---
 
 def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_info_externa: io.BytesIO, nombre_horno: str) -> Tuple[bool, Union[str, io.BytesIO]]:
     """
@@ -780,7 +781,7 @@ def main():
                 st.success(f"✅ Proceso para **{selected_horno}** completado exitosamente.")
 
                 # Mensaje de instrucción clave para el usuario 
-                st.warning("⚠️ **ACCIÓN REQUERIDA EN EXCEL:** Debido a problemas de compatibilidad del servidor, el cálculo automático está desactivado en el archivo descargado. **Deberá abrir el archivo de Excel y presionar la tecla F9 para activar todas las fórmulas** (especialmente en las hojas 'lsmw' y 'HORNOXX_procesado').")
+                st.warning("⚠️ **ACCIÓN REQUERIDA EN EXCEL:** El cálculo automático está desactivado en el archivo. **Deberá abrir el archivo de Excel y presionar la tecla F9 para activar todas las fórmulas** (especialmente en las hojas 'lsmw' y 'HORNOXX_procesado').")
 
                 # Nombre de archivo de salida
                 base_name = file_original.name.split('.')[0]
