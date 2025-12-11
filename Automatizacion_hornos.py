@@ -1,55 +1,3 @@
-# -*- coding: utf-8 -*-
-
-import pandas as pd
-import numpy as np
-import streamlit as st
-import io
-import re
-from typing import Tuple, Union, Dict, Any
-from openpyxl import load_workbook
-from openpyxl.styles import PatternFill, Font
-from openpyxl.utils.dataframe import dataframe_to_rows
-from openpyxl.utils import get_column_letter
-from collections import Counter
-
-# --- 1. CONSTANTES CENTRALIZADAS Y DEFINICIONES ---
-# Nombres de columnas usadas en el DataFrame final
-COL = {
-    # Columnas calculadas/mapeadas
-    'CANT_CALCULADA': 'Cant. base calculada',
-    'PESO_NETO': 'peso neto',
-    'SECUENCIA': 'secuencia recurso',
-    'ATIPICO': 'Atipico_Cant_Calculada',
-    'MANO_OBRA': 'Mano de obra',
-    'SUMA_VALORES': 'suma valores',
-    'PORCENTAJE_RECHAZO': '%de rechazo',
-    'NRO_PERSONAS': 'Cant_Manual',
-    'NRO_MAQUINAS': 'Cant_Maquinas',
-    'CLAVE_BUSQUEDA': 'Clave_Busqueda',
-    'DIFERENCIA': 'diferencia',
-    'CANTIDAD_BASE': 'Cantidad base', # Columna leída del original
-    'OP': 'Op.',
-    'LINEA': 'Linea',
-    
-    # Columnas de mapeo (archivo externo)
-    'CLAVE_EXTERNA': 'MaterialHorno',
-    'CANT_EXTERNA': 'CantidadBaseXHora',
-    
-    # Nombres de hojas a crear (Comunes)
-    'HOJA_SALIDA_SECUENCIAS': 'Secuencias',
-    'HOJA_SALIDA_LSMW': 'lsmw',
-    'HOJA_SALIDA_CAMPOS_USUARIO': 'campos de usuario',
-    'HOJA_SALIDA_RECHAZO': '% de rechazo',
-    'HOJA_MANO_OBRA': 'Mano de obra',
-    
-    # Estilos/Resaltados
-    'RESALTAR': ['Mano de obra', 'suma valores', 'Cant_Manual', 'Cant_Maquinas']
-}
-
-# Configuración específica de cada Horno
-HORNOS_CONFIG = {
-    'HORNO 1': {'HOJA_PRINCIPAL': 'HORNO 1', 'HOJA_SALIDA': 'HORNO1_procesado'},
-    # -*- coding: utf-8 -*-
 
 import pandas as pd
 import numpy as np
@@ -1121,4 +1069,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
