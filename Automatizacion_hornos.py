@@ -376,10 +376,28 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         # Atípicos
         cols_agrupamiento = [COL['PESO_NETO'], COL['SECUENCIA']]
         
-        # FIX: Se cambia .reset_index() por .droplevel() para evitar el error de asignación de columnas múltiples.
-        df_original[COL['ATIPICO']] = df_original.groupby(cols_agrupamiento, dropna=True).apply(
+        # ------------------ INICIO DE CORRECCIÓN ROBUSTA DE ÍNDICE -------------------
+        # Se asegura que la Serie resultante se alinee con el índice de df_original
+        
+        atipicos_series_multiindex = df_original.groupby(cols_agrupamiento, dropna=True).apply(
             detectar_y_marcar_cantidad_atipica
-        ).droplevel(level=list(range(len(cols_agrupamiento)))).fillna(False)
+        )
+        
+        # Aplanamos el MultiIndex de forma segura: eliminando N-1 niveles (el error dice que solo quedan 2)
+        # y luego reseteando el último nivel (que debería ser el índice de la fila original)
+        # Si el índice tiene N niveles, eliminamos N-1 (el último nivel debe ser el índice de la fila)
+        n_levels = len(cols_agrupamiento)
+        
+        if atipicos_series_multiindex.index.nlevels > 1:
+            # Eliminar todos los niveles de agrupación excepto el último (el índice de la fila)
+            df_temp_result = atipicos_series_multiindex.droplevel(level=list(range(n_levels))).reset_index(drop=True)
+            # Y forzamos la reindexación al índice original del DataFrame
+            df_original[COL['ATIPICO']] = df_temp_result.reindex(df_original.index, fill_value=False)
+        else:
+            # Si solo tiene un nivel (el índice original), lo asignamos directamente
+            df_original[COL['ATIPICO']] = atipicos_series_multiindex.fillna(False)
+            
+        # ------------------ FIN DE CORRECCIÓN ROBUSTA DE ÍNDICE -------------------
 
         # 7. Reconstrucción Final y Guardado con Formato
         df_original = df_original.drop(columns=['PstoTbjo_Concat']) if 'PstoTbjo_Concat' in df_original.columns else df_original
