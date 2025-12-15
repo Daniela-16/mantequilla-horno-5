@@ -376,28 +376,27 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         # Atípicos
         cols_agrupamiento = [COL['PESO_NETO'], COL['SECUENCIA']]
         
-        # ------------------ INICIO DE CORRECCIÓN ROBUSTA DE ÍNDICE -------------------
-        # Se asegura que la Serie resultante se alinee con el índice de df_original
+        # ------------------ INICIO DE CORRECCIÓN ROBUSTA DE ÍNDICE (FINAL) -------------------
         
+        # 1. Calcular los atípicos: el resultado es una MultiIndex Series.
         atipicos_series_multiindex = df_original.groupby(cols_agrupamiento, dropna=True).apply(
             detectar_y_marcar_cantidad_atipica
         )
         
-        # Aplanamos el MultiIndex de forma segura: eliminando N-1 niveles (el error dice que solo quedan 2)
-        # y luego reseteando el último nivel (que debería ser el índice de la fila original)
-        # Si el índice tiene N niveles, eliminamos N-1 (el último nivel debe ser el índice de la fila)
-        n_levels = len(cols_agrupamiento)
+        # 2. Extraer el índice de la fila original (siempre el último nivel después de apply)
+        # Esto funciona incluso si los niveles de agrupación se colapsan.
+        idx_original = atipicos_series_multiindex.index.get_level_values(-1)
         
-        if atipicos_series_multiindex.index.nlevels > 1:
-            # Eliminar todos los niveles de agrupación excepto el último (el índice de la fila)
-            df_temp_result = atipicos_series_multiindex.droplevel(level=list(range(n_levels))).reset_index(drop=True)
-            # Y forzamos la reindexación al índice original del DataFrame
-            df_original[COL['ATIPICO']] = df_temp_result.reindex(df_original.index, fill_value=False)
-        else:
-            # Si solo tiene un nivel (el índice original), lo asignamos directamente
-            df_original[COL['ATIPICO']] = atipicos_series_multiindex.fillna(False)
-            
-        # ------------------ FIN DE CORRECCIÓN ROBUSTA DE ÍNDICE -------------------
+        # 3. Crear una nueva Serie alineada con el índice de fila original
+        result_aligned = pd.Series(
+            atipicos_series_multiindex.values,
+            index=idx_original
+        ).reindex(df_original.index, fill_value=False)
+        
+        # 4. Asignar la Serie alineada al DataFrame
+        df_original[COL['ATIPICO']] = result_aligned
+        
+        # ------------------ FIN DE CORRECCIÓN ROBUSTA DE ÍNDICE (FINAL) -------------------
 
         # 7. Reconstrucción Final y Guardado con Formato
         df_original = df_original.drop(columns=['PstoTbjo_Concat']) if 'PstoTbjo_Concat' in df_original.columns else df_original
