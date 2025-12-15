@@ -588,7 +588,9 @@ def main():
                 st.write("Verifique el formato de las hojas y los nombres de las columnas en sus archivos.")
 
 if __name__ == "__main__":
-    main()main()
+    main()
+    
+
 
 
 
