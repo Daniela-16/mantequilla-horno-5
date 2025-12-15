@@ -76,8 +76,8 @@ COLUMNAS_OUTPUT = {
     'CAMPOS_USUARIO': ['GrpHRuta', 'CGH', 'Material', 'Ce.', COL['OP'],
                        'Indicador', 'clase de control', COL['NRO_PERSONAS'], COL['NRO_MAQUINAS']],
     'RECHAZO': ['GrPlf', COL['CLAVE_BUSQUEDA'], 'Material', 'Ce.', 'alternativa', 'alternativa',
-                'posición', 'Relevancia', COL['PORCENTAJE_RECHAZO'],
-                '% rechazo anterior', COL['DIFERENCIA'], 'Txt.brv.HRuta']
+                 'posición', 'Relevancia', COL['PORCENTAJE_RECHAZO'],
+                 '% rechazo anterior', COL['DIFERENCIA'], 'Txt.brv.HRuta']
 }
 
 # Orden final de las columnas en la hoja de salida (simplificado)
@@ -112,6 +112,8 @@ def _obtener_nombre_columna(cols: list, idx: int, default_name: str) -> str:
 
 def _mapear_df(df_origen: pd.DataFrame, df_mapa: pd.DataFrame, col_clave_origen: str, col_clave_mapa: str, col_valor_mapa: str, col_destino: str, keep_mode: str = 'first'):
     """Función utilitaria para realizar mapeos (vlookup) de forma concisa."""
+    # Nota: Esta función ya NO se usa para el cálculo del MAX (Cant. base calculada),
+    # sino para mapeos simples (Peso Neto, Rechazo), donde 'first' es suficiente.
     mapa_series = (
         df_mapa.sort_values(by=col_valor_mapa, ascending=(keep_mode == 'first'), na_position='last')
         .drop_duplicates(subset=[col_clave_mapa], keep=keep_mode)
@@ -121,7 +123,7 @@ def _mapear_df(df_origen: pd.DataFrame, df_mapa: pd.DataFrame, col_clave_origen:
 
 def detectar_y_marcar_cantidad_atipica(grupo: pd.DataFrame) -> pd.Series:
     """Detecta si 'Cant. base calculada' es atípica (diferente a la moda).
-       Retorna una Serie booleana alineada con el índice del grupo."""
+        Retorna una Serie booleana alineada con el índice del grupo."""
     valores_no_nan = grupo[COL['CANT_CALCULADA']].dropna()
     if valores_no_nan.empty:
         return pd.Series(False, index=grupo.index)
@@ -357,8 +359,9 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             .sort_values(by=COL['CANT_EXTERNA'], ascending=False, na_position='last')
             .drop_duplicates(subset=[COL['CLAVE_EXTERNA']], keep='first')
             .set_index(COL['CLAVE_EXTERNA'])[COL['CANT_EXTERNA']]
-)
-df_original[COL['CANT_CALCULADA']] = df_original[COL['CLAVE_BUSQUEDA']].map(mapa_max_cantidad)
+        ) # <-- CORRECCIÓN DE INDENTACIÓN APLICADA AQUÍ (8 espacios)
+        df_original[COL['CANT_CALCULADA']] = df_original[COL['CLAVE_BUSQUEDA']].map(mapa_max_cantidad)
+        
         # 4.2. Porcentaje de Rechazo (usando FIRST)
         _mapear_df(df_original, df_externo, COL['CLAVE_BUSQUEDA'], COL['CLAVE_EXTERNA'], col_names['nombre_col_rechazo_externa'], COL['PORCENTAJE_RECHAZO'], keep_mode='first')
         
