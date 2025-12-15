@@ -145,12 +145,19 @@ def obtener_secuencia(puesto_trabajo: str, df_secuencias: pd.DataFrame) -> Union
     """Busca la secuencia del puesto de trabajo en la hoja 'Secuencias'."""
     psttbjo_str = str(puesto_trabajo).strip()
     
-    # La columna de la secuencia es el índice de la columna en df_secuencias + 1
-    for col_idx in range(df_secuencias.shape[1]):
-        col_data = df_secuencias.iloc[:, col_idx].dropna().astype(str).str.strip()
-        if psttbjo_str in set(col_data):
-            return col_idx + 1
+    try:
+        # La columna de la secuencia es el índice de la columna en df_secuencias + 1
+        for col_idx in range(df_secuencias.shape[1]):
+            col_data = df_secuencias.iloc[:, col_idx].dropna()
+            col_data_str = col_data.astype(str).str.strip()
+            
+            if psttbjo_str in set(col_data_str):
+                return col_idx + 1
 
+    except Exception:
+        # Capturamos cualquier excepción (incluyendo errores de tipo en la columna)
+        return np.nan
+        
     return np.nan
 
 # --- 3. FUNCIÓN DE CARGA Y LIMPIEZA SIMPLIFICADA ---
@@ -336,7 +343,11 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
             )
             columna_para_secuencia = 'PstoTbjo_Concat'
             
-        df_original[COL['SECUENCIA']] = df_original[columna_para_secuencia].apply(lambda x: obtener_secuencia(x, df_secuencias))
+        # FIX: Sustitución de .apply(lambda...) por list comprehension para aislar el error "2"
+        df_original[COL['SECUENCIA']] = [
+            obtener_secuencia(x, df_secuencias) 
+            for x in df_original[columna_para_secuencia]
+        ]
 
         # 4. Mapeo de Cantidad Calculada, Rechazo y Peso Neto
         # 4.1. Cantidad Calculada (usando MAX)
@@ -376,15 +387,13 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         # Atípicos
         cols_agrupamiento = [COL['PESO_NETO'], COL['SECUENCIA']]
         
-        # ------------------ INICIO DE CORRECCIÓN ROBUSTA DE ÍNDICE (FINAL) -------------------
-        
+        # FIX: Corrección robusta de índice (Final)
         # 1. Calcular los atípicos: el resultado es una MultiIndex Series.
         atipicos_series_multiindex = df_original.groupby(cols_agrupamiento, dropna=True).apply(
             detectar_y_marcar_cantidad_atipica
         )
         
         # 2. Extraer el índice de la fila original (siempre el último nivel después de apply)
-        # Esto funciona incluso si los niveles de agrupación se colapsan.
         idx_original = atipicos_series_multiindex.index.get_level_values(-1)
         
         # 3. Crear una nueva Serie alineada con el índice de fila original
@@ -395,8 +404,7 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         
         # 4. Asignar la Serie alineada al DataFrame
         df_original[COL['ATIPICO']] = result_aligned
-        
-        # ------------------ FIN DE CORRECCIÓN ROBUSTA DE ÍNDICE (FINAL) -------------------
+
 
         # 7. Reconstrucción Final y Guardado con Formato
         df_original = df_original.drop(columns=['PstoTbjo_Concat']) if 'PstoTbjo_Concat' in df_original.columns else df_original
@@ -580,6 +588,7 @@ def main():
                 st.write("Verifique el formato de las hojas y los nombres de las columnas en sus archivos.")
 
 if __name__ == "__main__":
-    main()
+    main()main()
+
 
 
