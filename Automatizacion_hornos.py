@@ -351,8 +351,14 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 
         # 4. Mapeo de Cantidad Calculada, Rechazo y Peso Neto
         # 4.1. Cantidad Calculada (usando MAX)
-        _mapear_df(df_original, df_externo, COL['CLAVE_BUSQUEDA'], COL['CLAVE_EXTERNA'], COL['CANT_EXTERNA'], COL['CANT_CALCULADA'], keep_mode='last') # 'last' en sort_values, 'first' en keep
-        
+        # Ordenamos DESCENDENTE para que el valor MÁXIMO quede PRIMERO. Luego usamos keep='first'.
+        mapa_max_cantidad = (
+            df_externo
+            .sort_values(by=COL['CANT_EXTERNA'], ascending=False, na_position='last')
+            .drop_duplicates(subset=[COL['CLAVE_EXTERNA']], keep='first')
+            .set_index(COL['CLAVE_EXTERNA'])[COL['CANT_EXTERNA']]
+)
+df_original[COL['CANT_CALCULADA']] = df_original[COL['CLAVE_BUSQUEDA']].map(mapa_max_cantidad)
         # 4.2. Porcentaje de Rechazo (usando FIRST)
         _mapear_df(df_original, df_externo, COL['CLAVE_BUSQUEDA'], COL['CLAVE_EXTERNA'], col_names['nombre_col_rechazo_externa'], COL['PORCENTAJE_RECHAZO'], keep_mode='first')
         
@@ -589,6 +595,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
