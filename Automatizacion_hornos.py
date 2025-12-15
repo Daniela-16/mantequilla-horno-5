@@ -375,10 +375,15 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         
         # Atípicos
         cols_agrupamiento = [COL['PESO_NETO'], COL['SECUENCIA']]
+        
+        # === APLICACIÓN DE LA CORRECCIÓN ===
+        # Se utiliza .droplevel() en lugar de .reset_index() para manejar correctamente el MultiIndex
         df_original[COL['ATIPICO']] = df_original.groupby(cols_agrupamiento, dropna=True).apply(
             detectar_y_marcar_cantidad_atipica
-        ).reset_index(level=list(range(len(cols_agrupamiento))), drop=True).fillna(False)
+        ).droplevel(level=list(range(len(cols_agrupamiento)))).fillna(False)
+        # ===================================
 
+        
         # 7. Reconstrucción Final y Guardado con Formato
         df_original = df_original.drop(columns=['PstoTbjo_Concat']) if 'PstoTbjo_Concat' in df_original.columns else df_original
         
@@ -562,6 +567,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
