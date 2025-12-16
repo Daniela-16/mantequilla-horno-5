@@ -338,13 +338,17 @@ def main():
             if success:
                 st.success(f"✅ Proceso para **{selected_horno}** completado exitosamente.")
 
-                # Mensaje de instrucción clave para el usuario
-                st.warning("⚠️ **ACCIÓN REQUERIDA EN EXCEL:** El cálculo automático está desactivado en el archivo. **Deberá abrir el archivo de Excel y presionar la tecla F9 para activar todas las fórmulas** (especialmente en las hojas 'lsmw' y 'HORNOXX_procesado').")
-
-                # Nombre de archivo de salida
-                base_name = file_original.name.rsplit('.', 1)[0]
-                file_name_output = f"{base_name.replace(hoja_principal, '')}_{hoja_salida}.xlsx" if hoja_principal in base_name else f"{base_name}_{hoja_salida}.xlsx"
-
+                #Nombre del archivo
+                full_name = file_original.name.rsplit('.', 1)[0]
+                
+                # Dividir el nombre donde aparezca el 1er guion
+                # El .strip() es para eliminar espacios sobrantes si los hubiera
+                base_name = full_name.split('_', 1)[0].strip()
+                
+                # Crear el nombre de salida
+                file_name_output = f"{base_name}_{hoja_salida}.xlsx"
+                
+               
                 st.download_button(
                     label="⬇️ Descargar Archivo Procesado",
                     data=resultado,
@@ -360,6 +364,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
