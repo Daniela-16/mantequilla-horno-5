@@ -271,27 +271,97 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
 # --- 6. INTERFAZ ---
 
 def main():
-    st.set_page_config(page_title="Automatización Hornos", layout="centered")
-    st.title("⚙️ Automatización Verificación de datos - HORNOS")
-    hornos = list(HORNOS_CONFIG.keys())
-    sel = st.radio("**1. Seleccione el Horno:**", hornos, index=4, horizontal=True)
-    st.markdown("---")
-    c1, c2 = st.columns(2)
-    with c1: f_orig = st.file_uploader("Archivo original", type=['xlsx'])
-    with c2: f_ext = st.file_uploader("Archivo externo", type=['xlsb', 'xlsx'])
+    """Configura la interfaz de usuario de Streamlit."""
+    st.set_page_config(
+        page_title="Automatización Hornos",
+        layout="centered",
+        initial_sidebar_state="auto"
+    )
 
-    if st.button(f"▶️ PROCESAR {sel}", type="primary", use_container_width=True):
-        if f_orig and f_ext:
-            ok, res = automatizacion_final_diferencia_reforzada(io.BytesIO(f_orig.getvalue()), io.BytesIO(f_ext.getvalue()), sel)
-            if ok:
-                st.success("✅ Completado.")
-                st.warning("⚠️ Presione **F9** en Excel para activar los vínculos.")
-                st.download_button("⬇️ Descargar", data=res, file_name=f"Reporte_{sel}.xlsx", use_container_width=True)
-            else: st.error(f"❌ Error: {res}")
-        else: st.error("Cargue ambos archivos.")
+    st.title("⚙️ Automatización Verificación de datos - HORNOS")
+    st.markdown("Seleccione el Horno a procesar y luego cargue los archivos.")
+
+    # SELECCIÓN DEL HORNO
+    hornos_disponibles = list(HORNOS_CONFIG.keys())
+    selected_horno = st.radio(
+        "**1. Seleccione el Horno a Procesar:**",
+        hornos_disponibles,
+        index=hornos_disponibles.index('HORNO 5') if 'HORNO 5' in hornos_disponibles else 0,
+        horizontal=True,
+        key="horno_selector"
+    )
+    st.markdown("---")
+    
+    config = HORNOS_CONFIG[selected_horno]
+    hoja_principal = config['HOJA_PRINCIPAL']
+    hoja_salida = config['HOJA_SALIDA']
+
+    st.subheader(f"2. Carga de Archivos para **{selected_horno}** (Hoja Principal: '{hoja_principal}')")
+    
+    col1, col2 = st.columns(2)
+
+    with col1:
+        file_original = st.file_uploader(
+            f"Carga la base de datos original",
+            type=['xlsx'],
+            help=f"El archivo debe contener las hojas: **{hoja_principal}**, 'Peso neto', '{COL['HOJA_SALIDA_SECUENCIAS']}' y '{COL['HOJA_MANO_OBRA']}'.",
+            key="file_original_uploader"
+        )
+
+    with col2:
+        file_externa = st.file_uploader(
+            "Carga el archivo externo de toma de información.",
+            type=['xlsb', 'xlsx'],
+            help="El archivo que contiene la hoja 'Especif y Rutas'.",
+            key="file_externa_uploader"
+        )
+
+    st.markdown("---")
+
+    # Botón de ejecución y manejo del proceso
+    if st.button(f"▶️ PROCESAR {selected_horno}", type="primary", use_container_width=True, key="process_button"):
+        if file_original is None or file_externa is None:
+            st.error("Por favor, cargue ambos archivos antes de procesar.")
+        else:
+            file_buffer_original = io.BytesIO(file_original.getvalue())
+            file_buffer_externa = io.BytesIO(file_externa.getvalue())
+
+            with st.spinner(f'Procesando datos y generando reporte para {selected_horno}...'):
+                success, resultado = automatizacion_final_diferencia_reforzada(
+                    file_buffer_original,
+                    file_buffer_externa,
+                    selected_horno
+                )
+
+            st.markdown("---")
+
+            if success:
+                st.success(f"✅ Proceso para **{selected_horno}** completado exitosamente.")
+
+                # Mensaje de instrucción clave para el usuario
+                st.warning("⚠️ **ACCIÓN REQUERIDA EN EXCEL:** El cálculo automático está desactivado en el archivo. **Deberá abrir el archivo de Excel y presionar la tecla F9 para activar todas las fórmulas** (especialmente en las hojas 'lsmw' y 'HORNOXX_procesado').")
+
+                # Nombre de archivo de salida
+                base_name = file_original.name.rsplit('.', 1)[0]
+                file_name_output = f"{base_name.replace(hoja_principal, '')}_{hoja_salida}.xlsx" if hoja_principal in base_name else f"{base_name}_{hoja_salida}.xlsx"
+
+                st.download_button(
+                    label="⬇️ Descargar Archivo Procesado",
+                    data=resultado,
+                    file_name=file_name_output,
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    use_container_width=True
+                )
+                st.info(f"El archivo descargado contiene todas las hojas originales más las 4 hojas de reporte: **{hoja_salida}**, '{COL['HOJA_SALIDA_LSMW']}', '{COL['HOJA_SALIDA_CAMPOS_USUARIO']}' y '{COL['HOJA_SALIDA_RECHAZO']}'.")
+            else:
+                st.error("❌ Error en el Proceso")
+                st.warning(resultado)
+                st.write("Verifique el formato de las hojas y los nombres de las columnas en sus archivos.")
 
 if __name__ == "__main__":
     main()
+
+
 
 
 
