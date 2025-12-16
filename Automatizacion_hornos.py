@@ -33,7 +33,7 @@ COL = {
     'HOJA_SALIDA_CAMPOS_USUARIO': 'campos de usuario',
     'HOJA_SALIDA_RECHAZO': '% de rechazo',
     'HOJA_MANO_OBRA': 'Mano de obra',
-    'RESALTAR': ['Mano de obra', 'suma valores', 'Cant_Manual', 'Cant_Maquinas']
+    'RESALTAR': ['Mano de obra', 'suma valores', 'Cant_Manual', 'Cant_Maquinas','Cant. base calculada',]
 }
 
 HORNOS_CONFIG = {f'HORNO {i}': {'HOJA_PRINCIPAL': f'HORNO {i}', 'HOJA_SALIDA': f'HORNO{i}_procesado'} for i in range(1, 13)}
@@ -242,6 +242,10 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         if HOJA_SALIDA in wb.sheetnames: del wb[HOJA_SALIDA]
         ws = wb.create_sheet(HOJA_SALIDA)
         for row in dataframe_to_rows(df_original_final, header=True, index=False): ws.append(row)
+        for c_idx, col_name in enumerate(df_original_final.columns, start=1):
+            if col_name in COL['RESALTAR']:
+                ws.cell(row=1, column=c_idx).fill = f_enc
+                ws.cell(row=1, column=c_idx).font = f_bold
 
         c_dif = df_original_final.columns.get_loc(COL['DIFERENCIA']) + 1
         l_base = get_column_letter(df_original_final.columns.get_loc(COL['CANTIDAD_BASE']) + 1)
@@ -364,6 +368,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
