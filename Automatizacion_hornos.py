@@ -36,21 +36,8 @@ COL = {
     'RESALTAR': ['Mano de obra', 'suma valores', 'Cant_Manual', 'Cant_Maquinas']
 }
 
-HORNOS_CONFIG = {
-    'HORNO 1': {'HOJA_PRINCIPAL': 'HORNO 1', 'HOJA_SALIDA': 'HORNO1_procesado'},
-    'HORNO 2': {'HOJA_PRINCIPAL': 'HORNO 2', 'HOJA_SALIDA': 'HORNO2_procesado'},
-    'HORNO 3': {'HOJA_PRINCIPAL': 'HORNO 3', 'HOJA_SALIDA': 'HORNO3_procesado'},
-    'HORNO 4': {'HOJA_PRINCIPAL': 'HORNO 4', 'HOJA_SALIDA': 'HORNO4_procesado'},
-    'HORNO 5': {'HOJA_PRINCIPAL': 'HORNO 5', 'HOJA_SALIDA': 'HORNO5_procesado'},
-    'HORNO 6': {'HOJA_PRINCIPAL': 'HORNO 6', 'HOJA_SALIDA': 'HORNO6_procesado'},
-    'HORNO 7': {'HOJA_PRINCIPAL': 'HORNO 7', 'HOJA_SALIDA': 'HORNO7_procesado'},
-    'HORNO 8': {'HOJA_PRINCIPAL': 'HORNO 8', 'HOJA_SALIDA': 'HORNO8_procesado'},
-    'HORNO 9': {'HOJA_PRINCIPAL': 'HORNO 9', 'HOJA_SALIDA': 'HORNO9_procesado'},
-    'HORNO 10': {'HOJA_PRINCIPAL': 'HORNO 10', 'HOJA_SALIDA': 'HORNO10_procesado'},
-    'HORNO 11': {'HOJA_PRINCIPAL': 'HORNO 11', 'HOJA_SALIDA': 'HORNO11_procesado'},
-    'HORNO 12': {'HOJA_PRINCIPAL': 'HORNO 12', 'HOJA_SALIDA': 'HORNO12_procesado'},
-    'HORNO 18': {'HOJA_PRINCIPAL': 'HORNO 18', 'HOJA_SALIDA': 'HORNO18_procesado'},
-}
+HORNOS_CONFIG = {f'HORNO {i}': {'HOJA_PRINCIPAL': f'HORNO {i}', 'HOJA_SALIDA': f'HORNO{i}_procesado'} for i in range(1, 13)}
+HORNOS_CONFIG['HORNO 18'] = {'HOJA_PRINCIPAL': 'HORNO 18', 'HOJA_SALIDA': 'HORNO18_procesado'}
 
 IDX = {
     'MATERIAL': 2, 'GRPLF': 4, 'CANTIDAD_BASE_LEIDA': 6, 'PSTTBJO': 18,
@@ -83,250 +70,181 @@ FINAL_COL_ORDER = [
 
 COLUMNAS_A_SUMAR = ['ValPref', 'ValPref1', COL['MANO_OBRA'], 'ValPref3']
 
-# --- 2. FUNCIONES DE LÓGICA ABSTRAÍDA ---
+# --- 2. FUNCIONES DE LÓGICA ---
 
 def _obtener_nombre_columna(cols: list, idx: int, default_name: str) -> str:
     return cols[idx] if idx < len(cols) else default_name
 
-def _mapear_df(df_origen: pd.DataFrame, df_mapa: pd.DataFrame, col_clave_origen: str, col_clave_mapa: str, col_valor_mapa: str, col_destino: str, keep_mode: str = 'first'):
-    mapa_series = (
-        df_mapa.sort_values(by=col_valor_mapa, ascending=(keep_mode == 'first'), na_position='last')
-        .drop_duplicates(subset=[col_clave_mapa], keep=keep_mode)
-        .set_index(col_clave_mapa)[col_valor_mapa]
-    )
+def _mapear_df(df_origen, df_mapa, col_clave_origen, col_clave_mapa, col_valor_mapa, col_destino, keep_mode='first'):
+    mapa_series = (df_mapa.sort_values(by=col_valor_mapa, ascending=(keep_mode == 'first'), na_position='last')
+                   .drop_duplicates(subset=[col_clave_mapa], keep=keep_mode).set_index(col_clave_mapa)[col_valor_mapa])
     df_origen[col_destino] = df_origen[col_clave_origen].map(mapa_series)
 
 def detectar_y_marcar_cantidad_atipica(grupo: pd.DataFrame) -> pd.Series:
     valores_no_nan = grupo[COL['CANT_CALCULADA']].dropna()
-    if valores_no_nan.empty:
-        return pd.Series(False, index=grupo.index)
+    if valores_no_nan.empty: return pd.Series(False, index=grupo.index)
     moda = Counter(valores_no_nan).most_common(1)[0][0]
     return grupo[COL['CANT_CALCULADA']] != moda
 
 def filtrar_operaciones_impares_desde_31(df: pd.DataFrame) -> pd.DataFrame:
-    if COL['OP'] not in df.columns:
-        return pd.DataFrame()
-    df_temp = df.copy()
-    op_num = pd.to_numeric(df_temp[COL['OP']].astype(str).str.strip(), errors='coerce')
-    condicion = (op_num.notna()) & (op_num >= 31) & (op_num % 2 != 0)
-    return df_temp[condicion]
+    if COL['OP'] not in df.columns: return pd.DataFrame()
+    op_num = pd.to_numeric(df[COL['OP']].astype(str).str.strip(), errors='coerce')
+    return df[(op_num.notna()) & (op_num >= 31) & (op_num % 2 != 0)]
 
 def obtener_secuencia(puesto_trabajo: str, df_secuencias: pd.DataFrame) -> Union[int, float]:
-    psttbjo_str = str(puesto_trabajo).strip()
+    pst_str = str(puesto_trabajo).strip()
     try:
         for col_idx in range(df_secuencias.shape[1]):
-            col_data = df_secuencias.iloc[:, col_idx].dropna()
-            col_data_str = col_data.astype(str).str.strip()
-            if psttbjo_str in set(col_data_str):
+            if pst_str in df_secuencias.iloc[:, col_idx].dropna().astype(str).str.strip().values:
                 return col_idx + 1
-    except Exception:
-        return np.nan
+    except: return np.nan
     return np.nan
 
-# --- 3. FUNCIÓN DE CARGA Y LIMPIEZA SIMPLIFICADA ---
+# --- 3. CREACIÓN DE HOJAS VINCULADAS ---
 
-def cargar_y_limpiar_datos(file_original: io.BytesIO, file_info_externa: io.BytesIO, nombre_horno: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, Dict[str, str]]:
-    config = HORNOS_CONFIG[nombre_horno]
-    hoja_principal = config['HOJA_PRINCIPAL']
-    cols_original = pd.read_excel(file_original, sheet_name=hoja_principal, nrows=0).columns.tolist()
-    file_original.seek(0)
-    cols_pn = pd.read_excel(file_original, sheet_name='Peso neto', nrows=0).columns.tolist()
-    file_original.seek(0)
-    cols_externo = pd.read_excel(file_info_externa, sheet_name='Especif y Rutas', nrows=0).columns.tolist()
-    file_info_externa.seek(0)
-    
-    col_names = {
-        'cant_base_leida': _obtener_nombre_columna(cols_original, IDX['CANTIDAD_BASE_LEIDA'], COL['CANTIDAD_BASE']),
-        'material': _obtener_nombre_columna(cols_original, IDX['MATERIAL'], 'Material'),
-        'psttbjo': _obtener_nombre_columna(cols_original, IDX['PSTTBJO'], 'PstoTbjo'),
-        'grplf': _obtener_nombre_columna(cols_original, IDX['GRPLF'], 'GrPlf'),
-        'material_pn': _obtener_nombre_columna(cols_pn, IDX['MATERIAL_PN'], 'Material'),
-        'peso_neto_valor': _obtener_nombre_columna(cols_pn, IDX['PESO_NETO_VALOR'], 'Peso neto'),
-        'nombre_col_rechazo_externa': _obtener_nombre_columna(cols_externo, IDX['RECHAZO_EXTERNA'], 'Columna AC'),
-        'hoja_principal': hoja_principal
-    }
-
-    df_original = pd.read_excel(file_original, sheet_name=hoja_principal)
-    file_original.seek(0)
-    df_peso_neto = pd.read_excel(file_original, sheet_name='Peso neto')
-    file_original.seek(0)
-    df_secuencias = pd.read_excel(file_original, sheet_name=COL['HOJA_SALIDA_SECUENCIAS'])
-    file_original.seek(0)
-    columnas_mano_obra = [0, 1, 2, 3, 4]
-    df_mano_obra = pd.read_excel(file_original, sheet_name=COL['HOJA_MANO_OBRA'], header=None,
-                                 usecols=range(len(columnas_mano_obra)), names=columnas_mano_obra)
-    file_original.seek(0)
-    cols_a_leer_externo = [COL['CLAVE_EXTERNA'], COL['CANT_EXTERNA'], col_names['nombre_col_rechazo_externa']]
-    df_externo = pd.read_excel(file_info_externa, sheet_name='Especif y Rutas', usecols=cols_a_leer_externo)
-    file_info_externa.seek(0)
-    
-    rename_map = {col_names['cant_base_leida']: COL['CANTIDAD_BASE'], col_names['material']: 'Material', col_names['psttbjo']: 'PstoTbjo', col_names['grplf']: 'GrPlf'}
-    df_original.rename(columns={k: v for k, v in rename_map.items() if k in df_original.columns}, inplace=True)
-    return df_original, df_externo, df_peso_neto, df_secuencias, df_mano_obra, col_names
-
-# --- 4. FUNCIÓN DE CREACIÓN DE HOJAS DE EXCEL (MODIFICADA PARA VINCULACIÓN TOTAL) ---
-
-def crear_y_guardar_hoja(wb, df_base: pd.DataFrame, nombre_hoja: str, columnas_destino: list, fill_encabezado: PatternFill, font_negrita: Font, hoja_salida_name: str = None):
-    """Crea una hoja donde cada celda es una fórmula que referencia a la hoja principal procesada."""
+def crear_y_guardar_hoja(wb, df_base, nombre_hoja, columnas_destino, fill_encabezado, font_negrita, hoja_salida_name):
+    """Crea una hoja vinculada a la principal por fórmulas, con campos determinados."""
     df_temp = filtrar_operaciones_impares_desde_31(df_base) if nombre_hoja == COL['HOJA_SALIDA_CAMPOS_USUARIO'] else df_base.copy()
     
     if nombre_hoja in wb.sheetnames: del wb[nombre_hoja]
     ws = wb.create_sheet(nombre_hoja)
     ws.append(columnas_destino)
-    
-    if not df_temp.empty and hoja_salida_name:
-        # Identificar las letras de columna en la hoja de origen
-        mapeo_columnas_origen = {}
-        for col in columnas_destino:
-            if col in df_base.columns:
-                idx = list(df_base.columns).index(col) + 1
-                mapeo_columnas_origen[col] = get_column_letter(idx)
 
-        # Escribir filas (fórmulas o valores fijos)
+    if not df_temp.empty:
+        # Obtener letras de columnas en la hoja procesada
+        mapeo_letras = {col: get_column_letter(list(df_base.columns).index(col) + 1) 
+                        for col in columnas_destino if col in df_base.columns}
+
         for r_idx, (df_idx, _) in enumerate(df_temp.iterrows(), start=2):
-            fila_origen = df_idx + 2 # +2 por encabezado y base 0 de pandas
-            
-            for c_idx, col_nombre in enumerate(columnas_destino, start=1):
-                # Valores determinados/fijos solicitados
+            fila_orig = df_idx + 2
+            for c_idx, col_name in enumerate(columnas_destino, start=1):
+                # 1. Campos fijos (Indicador y clase de control)
                 if nombre_hoja == COL['HOJA_SALIDA_CAMPOS_USUARIO']:
-                    if col_nombre == 'Indicador': 
-                        ws.cell(row=r_idx, column=c_idx, value='x')
-                        continue
-                    elif col_nombre == 'clase de control': 
-                        ws.cell(row=r_idx, column=c_idx, value='ZPP0006')
-                        continue
+                    if col_name == 'Indicador': ws.cell(row=r_idx, column=c_idx, value='x'); continue
+                    if col_name == 'clase de control': ws.cell(row=r_idx, column=c_idx, value='ZPP0006'); continue
 
-                # Vinculación por fórmula dinámica
-                if col_nombre in mapeo_columnas_origen:
-                    letra_orig = mapeo_columnas_origen[col_nombre]
-                    referencia = f"'{hoja_salida_name}'!{letra_orig}{fila_origen}"
-                    ws.cell(row=r_idx, column=c_idx, value=f"=IF({referencia}=0,\"\",{referencia})")
+                # 2. Campo vacío solicitado (% rechazo anterior)
+                if col_name == '% rechazo anterior':
+                    ws.cell(row=r_idx, column=c_idx, value=None)
+                    continue
 
-    # Aplicar formato a encabezados
-    indices_a_formatear = [columnas_destino.index(col) + 1 for col in COL['RESALTAR'] if col in columnas_destino]
-    for col_idx in indices_a_formatear:
-        ws.cell(row=1, column=col_idx).fill = fill_encabezado
-        ws.cell(row=1, column=col_idx).font = font_negrita
+                # 3. Diferencia específica en hoja de rechazo
+                if nombre_hoja == COL['HOJA_SALIDA_RECHAZO'] and col_name == COL['DIFERENCIA']:
+                    l_rechazo = get_column_letter(columnas_destino.index(COL['PORCENTAJE_RECHAZO']) + 1)
+                    l_anterior = get_column_letter(columnas_destino.index('% rechazo anterior') + 1)
+                    ws.cell(row=r_idx, column=c_idx, value=f"={l_rechazo}{r_idx}-{l_anterior}{r_idx}")
+                    continue
 
-# --- 5. FUNCIÓN PRINCIPAL DE PROCESAMIENTO REFACTORIZADA ---
+                # 4. Vinculación general por fórmula
+                if col_name in mapeo_letras:
+                    ref = f"'{hoja_salida_name}'!{mapeo_letras[col_name]}{fila_orig}"
+                    ws.cell(row=r_idx, column=c_idx, value=f"=IF({ref}=0,\"\",{ref})")
 
-def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_info_externa: io.BytesIO, nombre_horno: str) -> Tuple[bool, Union[str, io.BytesIO]]:
+    # Formato de encabezados original
+    for c_idx, col in enumerate(columnas_destino, start=1):
+        if col in COL['RESALTAR'] or col in [COL['CANT_CALCULADA'], COL['CANTIDAD_BASE']]:
+            ws.cell(row=1, column=c_idx).fill = fill_encabezado
+            ws.cell(row=1, column=c_idx).font = font_negrita
+
+# --- 4. PROCESO PRINCIPAL ---
+
+def automatizacion_final_diferencia_reforzada(file_original, file_info_externa, nombre_horno):
     config = HORNOS_CONFIG[nombre_horno]
     HOJA_SALIDA = config['HOJA_SALIDA']
 
     try:
-        st.subheader(f"Preparando datos para **{nombre_horno}**... 📊")
-        df_original, df_externo, df_peso_neto, df_secuencias, df_mano_obra, col_names = cargar_y_limpiar_datos(file_original, file_info_externa, nombre_horno)
+        # Carga
+        df_original = pd.read_excel(file_original, sheet_name=config['HOJA_PRINCIPAL'])
+        file_original.seek(0)
+        df_peso_neto = pd.read_excel(file_original, sheet_name='Peso neto')
+        file_original.seek(0)
+        df_secuencias = pd.read_excel(file_original, sheet_name=COL['HOJA_SALIDA_SECUENCIAS'])
+        file_original.seek(0)
+        df_mano_obra = pd.read_excel(file_original, sheet_name=COL['HOJA_MANO_OBRA'], header=None)
+        file_original.seek(0)
+        df_externo = pd.read_excel(file_info_externa, sheet_name='Especif y Rutas')
         
-        def limpiar(serie: pd.Series) -> pd.Series:
-            return serie.astype(str).str.strip().str.replace(r'\W+', '', regex=True)
+        # Nombres de columnas dinámicos
+        cols_orig = pd.read_excel(file_original, sheet_name=config['HOJA_PRINCIPAL'], nrows=0).columns.tolist()
+        col_rechazo_ext = pd.read_excel(file_info_externa, sheet_name='Especif y Rutas', nrows=0).columns[IDX['RECHAZO_EXTERNA']]
+        
+        df_original.rename(columns={cols_orig[IDX['CANTIDAD_BASE_LEIDA']]: COL['CANTIDAD_BASE'], 
+                                    cols_orig[IDX['MATERIAL']]: 'Material',
+                                    cols_orig[IDX['PSTTBJO']]: 'PstoTbjo',
+                                    cols_orig[IDX['GRPLF']]: 'GrPlf'}, inplace=True)
 
+        # Cálculos base
+        limpiar = lambda s: s.astype(str).str.strip().str.replace(r'\W+', '', regex=True)
         df_original[COL['CLAVE_BUSQUEDA']] = limpiar(df_original['Material']) + limpiar(df_original['GrPlf']) + limpiar(df_original['PstoTbjo'])
         df_externo[COL['CLAVE_EXTERNA']] = limpiar(df_externo[COL['CLAVE_EXTERNA']])
         
-        columna_para_secuencia = 'PstoTbjo'
-        if COL['LINEA'] in df_original.columns and limpiar(df_original[COL['LINEA']]).str.len().gt(0).any():
-            linea_limpia = df_original[COL['LINEA']].astype(str).str.strip()
-            psttbjo_limpio = df_original['PstoTbjo'].astype(str).str.strip()
-            df_original['PstoTbjo_Concat'] = np.where(linea_limpia.str.lower().isin(['nan', 'none', '', '-']), psttbjo_limpio, psttbjo_limpio + linea_limpia)
-            columna_para_secuencia = 'PstoTbjo_Concat'
-            
-        df_original[COL['SECUENCIA']] = [obtener_secuencia(x, df_secuencias) for x in df_original[columna_para_secuencia]]
-
-        mapa_max_cantidad = (df_externo.sort_values(by=COL['CANT_EXTERNA'], ascending=False, na_position='last')
-                            .drop_duplicates(subset=[COL['CLAVE_EXTERNA']], keep='first').set_index(COL['CLAVE_EXTERNA'])[COL['CANT_EXTERNA']])
-        df_original[COL['CANT_CALCULADA']] = df_original[COL['CLAVE_BUSQUEDA']].map(mapa_max_cantidad)
-        _mapear_df(df_original, df_externo, COL['CLAVE_BUSQUEDA'], COL['CLAVE_EXTERNA'], col_names['nombre_col_rechazo_externa'], COL['PORCENTAJE_RECHAZO'])
-        _mapear_df(df_original, df_peso_neto, 'Material', col_names['material_pn'], col_names['peso_neto_valor'], COL['PESO_NETO'])
-
-        COL_PSTTBJO_MO, COL_TIEMPO_MO, COL_CANTIDAD_MAQUINAS_MO, COL_CANTIDAD_PERSONAS_MO = 0, 2, 3, 4
-        df_mano_obra[COL_PSTTBJO_MO] = df_mano_obra[COL_PSTTBJO_MO].astype(str).str.strip()
-        df_mano_obra['Calculo_MO_Tiempo'] = pd.to_numeric(df_mano_obra[COL_TIEMPO_MO], errors='coerce') * 60
-        indices_terminan_en_1 = df_original[COL['OP']].astype(str).str.strip().str.endswith('1')
-        psttbjo_filtrado = df_original.loc[indices_terminan_en_1, 'PstoTbjo'].astype(str).str.strip()
+        df_original[COL['SECUENCIA']] = [obtener_secuencia(x, df_secuencias) for x in df_original['PstoTbjo']]
         
-        map_mo_tiempo = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MO]).set_index(COL_PSTTBJO_MO)['Calculo_MO_Tiempo']
-        map_personas = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MO]).set_index(COL_PSTTBJO_MO)[COL_CANTIDAD_PERSONAS_MO]
-        map_maquinas = df_mano_obra.drop_duplicates(subset=[COL_PSTTBJO_MO]).set_index(COL_PSTTBJO_MO)[COL_CANTIDAD_MAQUINAS_MO]
+        map_cant = df_externo.sort_values(by=COL['CANT_EXTERNA'], ascending=False).drop_duplicates(COL['CLAVE_EXTERNA']).set_index(COL['CLAVE_EXTERNA'])[COL['CANT_EXTERNA']]
+        df_original[COL['CANT_CALCULADA']] = df_original[COL['CLAVE_BUSQUEDA']].map(map_cant)
+        _mapear_df(df_original, df_externo, COL['CLAVE_BUSQUEDA'], COL['CLAVE_EXTERNA'], col_rechazo_ext, COL['PORCENTAJE_RECHAZO'])
         
-        df_original.loc[indices_terminan_en_1, COL['MANO_OBRA']] = psttbjo_filtrado.map(map_mo_tiempo)
-        df_original.loc[indices_terminan_en_1, COL['NRO_PERSONAS']] = psttbjo_filtrado.map(map_personas)
-        df_original.loc[indices_terminan_en_1, COL['NRO_MAQUINAS']] = psttbjo_filtrado.map(map_maquinas)
-        df_original[COL['SUMA_VALORES']] = np.nan
+        # Mano de Obra
+        idx_1 = df_original[COL['OP']].astype(str).str.strip().str.endswith('1')
+        map_mo = df_mano_obra.astype(str).drop_duplicates(subset=[0]).set_index(0)
+        df_original.loc[idx_1, COL['MANO_OBRA']] = df_original.loc[idx_1, 'PstoTbjo'].map(lambda x: float(map_mo.loc[x, 2])*60 if x in map_mo.index else np.nan)
+        df_original.loc[idx_1, COL['NRO_PERSONAS']] = df_original.loc[idx_1, 'PstoTbjo'].map(lambda x: map_mo.loc[x, 4] if x in map_mo.index else np.nan)
+        df_original.loc[idx_1, COL['NRO_MAQUINAS']] = df_original.loc[idx_1, 'PstoTbjo'].map(lambda x: map_mo.loc[x, 3] if x in map_mo.index else np.nan)
 
-        cant_base_float = pd.to_numeric(df_original[COL['CANTIDAD_BASE']].astype(str).str.replace(',', '.', regex=False).str.strip(), errors='coerce')
-        df_original[COL['CANTIDAD_BASE']] = np.trunc(cant_base_float)
-        df_original[COL['DIFERENCIA']] = np.nan
-        
-        atipicos_series = df_original.groupby([COL['PESO_NETO'], COL['SECUENCIA']], dropna=True).apply(detectar_y_marcar_cantidad_atipica)
-        idx_original = atipicos_series.index.get_level_values(-1)
-        df_original[COL['ATIPICO']] = pd.Series(atipicos_series.values, index=idx_original).reindex(df_original.index, fill_value=False)
+        # Atípicos
+        atipicos = df_original.groupby([pd.read_excel(file_original, sheet_name='Peso neto').columns[IDX['PESO_NETO_VALOR']], COL['SECUENCIA']], dropna=False).apply(detectar_y_marcar_cantidad_atipica)
+        df_original[COL['ATIPICO']] = pd.Series(atipicos.values, index=atipicos.index.get_level_values(-1)).reindex(df_original.index, fill_value=False)
 
-        df_original = df_original.drop(columns=['PstoTbjo_Concat']) if 'PstoTbjo_Concat' in df_original.columns else df_original
-        df_original_final = df_original.reindex(columns=[c for c in FINAL_COL_ORDER if c in df_original.columns])
-
-        file_original.seek(0)
+        # Preparar Hoja Procesada
+        df_final = df_original.reindex(columns=[c for c in FINAL_COL_ORDER if c in df_original.columns])
         wb = load_workbook(file_original)
-        fill_anomalia = PatternFill(start_color='FFA500', end_color='FFA500', fill_type='solid')
-        fill_encabezado = PatternFill(start_color='DDEBF7', end_color='DDEBF7', fill_type='solid')
-        font_negrita = Font(bold=True)
-        
+        f_anomalia = PatternFill(start_color='FFA500', end_color='FFA500', fill_type='solid') # Naranja original
+        f_encabezado = PatternFill(start_color='DDEBF7', end_color='DDEBF7', fill_type='solid') # Azul original
+        font_b = Font(bold=True)
+
         if HOJA_SALIDA in wb.sheetnames: del wb[HOJA_SALIDA]
-        ws = wb.create_sheet(HOJA_SALIDA)
-        for row in dataframe_to_rows(df_original_final, header=True, index=False): ws.append(row)
+        ws_p = wb.create_sheet(HOJA_SALIDA)
+        for r in dataframe_to_rows(df_final, index=False, header=True): ws_p.append(r)
 
-        col_dif_idx = df_original_final.columns.get_loc(COL['DIFERENCIA']) + 1
-        col_base_letter = get_column_letter(df_original_final.columns.get_loc(COL['CANTIDAD_BASE']) + 1)
-        col_calculada_letter = get_column_letter(df_original_final.columns.get_loc(COL['CANT_CALCULADA']) + 1)
-        col_suma_valores_idx = df_original_final.columns.get_loc(COL['SUMA_VALORES']) + 1
-        col_sum_letters = [get_column_letter(df_original_final.columns.get_loc(col) + 1) for col in COLUMNAS_A_SUMAR if col in df_original_final.columns]
+        # Fórmulas y resaltados en Procesada
+        c_dif = df_final.columns.get_loc(COL['DIFERENCIA']) + 1
+        c_base = get_column_letter(df_final.columns.get_loc(COL['CANTIDAD_BASE']) + 1)
+        c_calc = get_column_letter(df_final.columns.get_loc(COL['CANT_CALCULADA']) + 1)
+        c_sum_idx = df_final.columns.get_loc(COL['SUMA_VALORES']) + 1
+        c_sum_ls = [get_column_letter(df_final.columns.get_loc(c) + 1) for c in COLUMNAS_A_SUMAR if c in df_final.columns]
 
-        for r in range(2, len(df_original_final) + 2):
-            ws.cell(row=r, column=col_dif_idx, value=f'=ROUNDDOWN({col_base_letter}{r}, 0) - {col_calculada_letter}{r}').number_format = '#,##0.00'
-            sum_expr = f'SUM({",".join([f"{l}{r}" for l in col_sum_letters])})'
-            ws.cell(row=r, column=col_suma_valores_idx, value=f'=IF({sum_expr}=0,"",{sum_expr})').number_format = '#,##0.00'
+        for r in range(2, len(df_final) + 2):
+            ws_p.cell(row=r, column=c_dif, value=f'=ROUNDDOWN({c_base}{r}, 0) - {c_calc}{r}')
+            s_exp = f'SUM({",".join([f"{l}{r}" for l in c_sum_ls])})'
+            ws_p.cell(row=r, column=c_sum_idx, value=f'=IF({s_exp}=0,"",{s_exp})')
             if df_original.iloc[r-2][COL['ATIPICO']]:
-                ws.cell(row=r, column=df_original_final.columns.get_loc(COL['CANT_CALCULADA']) + 1).fill = fill_anomalia
-                
-        # Creación de Hojas Vinculadas dinámicamente
-        crear_y_guardar_hoja(wb, df_original_final, COL['HOJA_SALIDA_LSMW'], COLUMNAS_OUTPUT['LSMW'], fill_encabezado, font_negrita, HOJA_SALIDA)
-        crear_y_guardar_hoja(wb, df_original_final, COL['HOJA_SALIDA_CAMPOS_USUARIO'], COLUMNAS_OUTPUT['CAMPOS_USUARIO'], fill_encabezado, font_negrita, HOJA_SALIDA)
-        crear_y_guardar_hoja(wb, df_original_final, COL['HOJA_SALIDA_RECHAZO'], COLUMNAS_OUTPUT['RECHAZO'], fill_encabezado, font_negrita, HOJA_SALIDA)
-        
-        output_buffer = io.BytesIO()
-        wb.save(output_buffer)
-        output_buffer.seek(0)
-        return True, output_buffer
+                ws_p.cell(row=r, column=df_final.columns.get_loc(COL['CANT_CALCULADA']) + 1).fill = f_anomalia
 
-    except Exception as e:
-        return False, f"❌ Error: {e}"
+        # Generar Hojas Vinculadas
+        crear_y_guardar_hoja(wb, df_final, COL['HOJA_SALIDA_LSMW'], COLUMNAS_OUTPUT['LSMW'], f_encabezado, font_b, HOJA_SALIDA)
+        crear_y_guardar_hoja(wb, df_final, COL['HOJA_SALIDA_CAMPOS_USUARIO'], COLUMNAS_OUTPUT['CAMPOS_USUARIO'], f_encabezado, font_b, HOJA_SALIDA)
+        crear_y_guardar_hoja(wb, df_final, COL['HOJA_SALIDA_RECHAZO'], COLUMNAS_OUTPUT['RECHAZO'], f_encabezado, font_b, HOJA_SALIDA)
 
-# --- 6. INTERFAZ DE STREAMLIT ---
+        res_buf = io.BytesIO()
+        wb.save(res_buf)
+        res_buf.seek(0)
+        return True, res_buf
+    except Exception as e: return False, str(e)
 
+# --- 5. INTERFAZ STREAMLIT ---
 def main():
-    st.set_page_config(page_title="Automatización Hornos", layout="centered")
-    st.title("⚙️ Automatización Verificación de datos - HORNOS")
-    hornos_disponibles = list(HORNOS_CONFIG.keys())
-    selected_horno = st.radio("**1. Seleccione el Horno:**", hornos_disponibles, index=4, horizontal=True)
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        file_original = st.file_uploader("Carga la base de datos original", type=['xlsx'])
-    with col2:
-        file_externa = st.file_uploader("Carga el archivo externo", type=['xlsb', 'xlsx'])
+    st.title("⚙️ Automatización Hornos")
+    horno = st.radio("Seleccione Horno", list(HORNOS_CONFIG.keys()), index=4, horizontal=True)
+    f1, f2 = st.file_uploader("Base", type=['xlsx']), st.file_uploader("Externo", type=['xlsx', 'xlsb'])
+    if st.button("PROCESAR"):
+        if f1 and f2:
+            ok, res = automatizacion_final_diferencia_reforzada(io.BytesIO(f1.read()), io.BytesIO(f2.read()), horno)
+            if ok: 
+                st.success("Completado.")
+                st.download_button("Descargar", res, f"Reporte_{horno}.xlsx")
+            else: st.error(res)
 
-    if st.button(f"▶️ PROCESAR {selected_horno}", type="primary", use_container_width=True):
-        if file_original and file_externa:
-            success, resultado = automatizacion_final_diferencia_reforzada(io.BytesIO(file_original.getvalue()), io.BytesIO(file_externa.getvalue()), selected_horno)
-            if success:
-                st.success(f"✅ Completado.")
-                st.warning("⚠️ Abre el archivo y presiona **F9** para activar las fórmulas.")
-                st.download_button("⬇️ Descargar", data=resultado, file_name=f"Reporte_{selected_horno}.xlsx", use_container_width=True)
-            else:
-                st.error(resultado)
-
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
 
 
 
