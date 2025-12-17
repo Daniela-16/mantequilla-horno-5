@@ -45,7 +45,7 @@ IDX = {
 }
 
 COLUMNAS_OUTPUT = {
-    'LSMW': ['PstoTbjo', 'GrpHRuta', 'CGH', 'Material', COL['CLAVE_BUSQUEDA'], 'Ce.', COL['OP'],
+    'LSMW': [COL['CLAVE_BUSQUEDA'],'PstoTbjo', 'GrpHRuta', 'CGH', 'Material', 'Ce.', COL['OP'],
              COL['CANT_CALCULADA'], 'ValPref', 'ValPref1', COL['MANO_OBRA'], 'ValPref3',
              COL['SUMA_VALORES'], 'ValPref5'],
     'CAMPOS_USUARIO': ['GrpHRuta', 'CGH', 'Material', 'Ce.', COL['OP'],
@@ -368,6 +368,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
