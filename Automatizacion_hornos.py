@@ -201,8 +201,13 @@ def automatizacion_final_diferencia_reforzada(file_original: io.BytesIO, file_in
         st.subheader(f"Preparando datos para **{nombre_horno}**... 📊")
         df_original, df_externo, df_peso_neto, df_secuencias, df_mano_obra, col_names = cargar_y_limpiar_datos(file_original, file_info_externa, nombre_horno)
         
-        limpiar = lambda s: s.astype(str).str.strip().str.replace(r'\W+', '', regex=True)
+        # --- FUNCIÓN DE LIMPIEZA CORREGIDA (Elimina el .0 del Material) ---
+        limpiar = lambda s: s.astype(str).str.replace(r'\.0$', '', regex=True).str.strip().str.replace(r'\W+', '', regex=True)
+        
+        # Generación de Clave de Búsqueda limpia
         df_original[COL['CLAVE_BUSQUEDA']] = limpiar(df_original['Material']) + limpiar(df_original['GrPlf']) + limpiar(df_original['PstoTbjo'])
+        
+        # IMPORTANTE: Si el archivo externo ya tiene la clave bien, NO lo limpies de nuevo o usa la misma lógica
         df_externo[COL['CLAVE_EXTERNA']] = limpiar(df_externo[COL['CLAVE_EXTERNA']])
         
         col_sec = 'PstoTbjo'
@@ -368,6 +373,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
